@@ -1,4 +1,5 @@
 import os
+import json
 os.environ["TOKENIZERS_PARALLELISM"] = "false" 
 import argparse
 import torch
@@ -8,19 +9,9 @@ from copy import deepcopy
 from model_qwen import Qwen2ForCausalLM
 from model_llama import LlamaForCausalLM
 from transformers import Trainer, TrainingArguments
-# from torch.serialization import safe_globals
-# from deepspeed.runtime.zero.config import ZeroStageEnum
-# from deepspeed.runtime.fp16.loss_scaler import LossScaler
-# from deepspeed.runtime.config import DeepSpeedConfig
 import deepspeed
 import torch.distributed as dist
 from datetime import timedelta  # 引入时间库
-# # 定义需要允许的全局对象
-# DEEPSPEED_GLOBALS = [
-#     ZeroStageEnum,
-#     LossScaler,
-#     DeepSpeedConfig
-# ]
 
 
 # ===== 关键：在任何其他操作前绑定GPU设备 =====
@@ -99,6 +90,7 @@ def get_parser():
     parser.add_argument('--lr_scheduler_type', type=str, default='linear')
 
     parser.add_argument('--use_EPL', type=str2bool, default=False)
+    parser.add_argument('--aux_config', type=str, default=None)
     args = parser.parse_args()
     return args
 
@@ -130,9 +122,25 @@ def get_model_and_tokenizer(
         model_class = Qwen2ForCausalLM
     else:
         assert False, "We only support llama and qwen model."
-    model = model_class.from_pretrained(
-        args.model_path, torch_dtype=torch.bfloat16
-    )
+
+    if args.aux_config is not None:
+        _print(f"use ce + mtp loss...")
+        assert os.path.exists(args.aux_config)
+        from transformers import AutoConfig
+        model_config = AutoConfig.from_pretrained(args.model_path, trust_remote_code=True)
+        with open(args.aux_config, "r", encoding='utf-8') as f:
+            mtp_params = json.load(f)
+        _print(f"auxiliary mtp config={mtp_params}")
+        model_config.update(mtp_params)
+        model = model_class.from_pretrained(
+            args.model_path, config=model_config, torch_dtype=torch.bfloat16, trust_remote_code=True
+        )
+    
+    else:
+        _print(f"use ce loss...")
+        model = model_class.from_pretrained(
+            args.model_path, torch_dtype=torch.bfloat16
+        )
 
     model.add_qkv(
         q='q' in args.qkv,

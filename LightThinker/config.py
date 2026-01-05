@@ -16,7 +16,7 @@ class Config:
         template:Dict,
         prompt:Dict,
         output:Dict,
-        share:bool=True
+        share:bool=True,
     ): 
         self.share:bool = share
         self.template_cfg:Dict = template

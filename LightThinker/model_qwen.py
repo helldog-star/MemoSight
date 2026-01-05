@@ -902,7 +902,7 @@ class Qwen2Model(Qwen2PreTrainedModel):
                     "(https://huggingface.co/docs/transformers/kv_cache#legacy-cache-format)"
                 )
         
-        ##貌似是在这，用新的token替代掉原有的token
+        # 用新的token替代掉原有的token
         if inputs_embeds is None:
             inputs_embeds = self.embed_tokens(input_ids)
             if self.special_embed != None:
@@ -1137,6 +1137,87 @@ class Qwen2Model(Qwen2PreTrainedModel):
                 )
         return causal_mask
 
+class Qwen2MTPModule(nn.Module):
+    """
+    input: [hidden_prev, target_embeds]
+    output: 预测下一个token的hidden states
+    """
+    def __init__(self, config, layer_idx, is_first_mtp_layer=False):
+        super().__init__()
+        self.config = config
+        self.hidden_size = config.hidden_size
+        self.is_first_mtp_layer = is_first_mtp_layer
+
+        if not is_first_mtp_layer:
+            self.norm_prev = Qwen2RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
+        
+        self.norm_target = Qwen2RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
+
+        self.projection = nn.Linear(
+            config.hidden_size * 2, 
+            config.hidden_size, 
+            bias=False
+        )
+        
+        self.layer = Qwen2DecoderLayer(config, layer_idx)
+    
+    def forward(
+        self, 
+        hidden_prev,           
+        target_embeds,         
+        attention_mask=None,   
+        position_ids=None,     
+        position_embeddings=None, 
+        past_key_value=None,  
+        use_cache=False,      
+        output_attentions=False,
+        cache_position=None,
+        **kwargs
+    ):
+        """
+        Args:
+            hidden_prev: (batch, seq_len, hidden_dim) - 主模型或上一个MTP的输出
+            target_embeds: (batch, seq_len, hidden_dim) - 目标token的embedding
+            attention_mask: attention mask
+            position_ids: position indices
+            position_embeddings: (cos, sin) for RoPE
+        
+        Returns:
+            hidden_states: (batch, seq_len, hidden_dim) - 用于预测下一个token
+        """
+        # 归一化hidden_prev（第一层跳过，后续层需要）
+        if self.is_first_mtp_layer:
+            # 第一层：hidden_prev来自主模型，已经通过model.norm归一化
+            hidden_prev_norm = hidden_prev
+        else:
+            # 后续层：hidden_prev来自上一个MTP层，需要归一化
+            hidden_prev_norm = self.norm_prev(hidden_prev)
+        
+        # 归一化目标embedding
+        target_norm = self.norm_target(target_embeds)
+        
+        # 拼接 [hidden_prev, target_embeds] (batch, seq_len, 2 * hidden_dim)
+        concat_input = torch.cat([hidden_prev_norm, target_norm], dim=-1)
+        
+        # Shape: (batch, seq_len, hidden_dim)
+        projected_states = self.projection(concat_input)
+        
+        layer_outputs = self.layer(
+            hidden_states=projected_states,
+            attention_mask=attention_mask,
+            position_ids=position_ids,
+            position_embeddings=position_embeddings,
+            past_key_value=past_key_value,
+            output_attentions=output_attentions,
+            use_cache=use_cache,
+            cache_position=cache_position,
+            row_comp_index=None,
+            column_comp_index=None,
+            **kwargs
+        )
+        
+        return layer_outputs[0]
+
 
 class Qwen2ForCausalLM(Qwen2PreTrainedModel, GenerationMixin):
     _tied_weights_keys = ["lm_head.weight"]
@@ -1146,6 +1227,17 @@ class Qwen2ForCausalLM(Qwen2PreTrainedModel, GenerationMixin):
         self.model = Qwen2Model(config)
         self.vocab_size = config.vocab_size
         self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
+
+        self.mtp_depth = getattr(config, "mtp_depth", 0)
+        if self.mtp_depth > 0:
+            self.mtp_modules = nn.ModuleList([
+                    Qwen2MTPModule(
+                        config, 
+                        layer_idx=config.num_hidden_layers+i,
+                        is_first_mtp_layer=(i==0)  # 第一个MTP层标记为True
+                    ) 
+                    for i in range(self.mtp_depth)
+                ])
 
         # Initialize weights and apply final processing
         self.post_init()
@@ -1270,6 +1362,100 @@ class Qwen2ForCausalLM(Qwen2PreTrainedModel, GenerationMixin):
         if labels is not None:
             loss = self.loss_function(logits, labels, self.vocab_size, **loss_kwargs)
 
+            # MTP aux loss
+            if self.mtp_depth > 0:
+                # MTP权重系数
+                mtp_lambda = getattr(self.config, "mtp_lambda", 1.0)
+                
+                total_mtp_loss = 0
+                current_hidden = hidden_states  # 主模型的hidden states
+                position_embeddings = self.model.rotary_emb(hidden_states, position_ids) # 计算
+                
+                # Main model: hidden(t) -> predict t+1 (labels[t])
+                # MTP-0: [hidden(t), embed(input_ids[t+1])] -> predict t+2 (labels[t+1])
+                # MTP-1: [hidden_mtp0(t), embed(input_ids[t+2])] -> predict t+3 (labels[t+2])
+                
+                for k, mtp_module in enumerate(self.mtp_modules):
+                    # 使用input_ids[t+1]预测labels[t+1]，label在loss_function中会左移一位
+                    next_token_offset = k + 1
+                    
+                    # 检查序列长度是否足够
+                    seq_len = input_ids.size(1)
+                    if seq_len <= next_token_offset:
+                        break
+                    
+                    # 1. 输入：hidden(t) 和 embed(input_ids[t+k+1])
+                    
+                    # input_ids: [w0, w1, w2, w3, w4, w5]
+                    # k=0: [w1, w2, w3, w4, w5]
+                    # k=1: [w2, w3, w4, w5]
+                    next_token_ids = input_ids[:, next_token_offset:]
+                    next_token_embeds = self.model.embed_tokens(next_token_ids)
+                    # 截断hidden states，因为后面的用不着了，长度与next_token_embeds对齐
+                    curr_hidden_input = current_hidden[:, :-1]
+                    
+                    # 2. MTP的目标labels（loss_fn会对labels左移一位）
+
+                    # labels: [w0, w1, w2, w3, w4, w5]
+                    # k=0: [w1, w2, w3, w4, w5]
+                    # k=1: [w2, w3, w4, w5] 
+                    mtp_target_labels = labels[:, next_token_offset:]
+                    
+                    # 确保长度匹配
+                    sizes = (curr_hidden_input.size(1), next_token_embeds.size(1), mtp_target_labels.size(1))
+                    assert len(set(sizes)) == 1, \
+                        f"Size mismatch: hidden={sizes[0]}, embeds={sizes[1]}, labels={sizes[2]}"
+                    curr_len = curr_hidden_input.size(1)
+
+                    curr_hidden_input = curr_hidden_input[:, :curr_len, :]
+                    next_token_embeds = next_token_embeds[:, :curr_len, :]
+                    mtp_target_labels = mtp_target_labels[:, :curr_len]
+                    
+                    # 3. 准备attention_mask和position_ids
+                    if attention_mask is not None:
+                        if attention_mask.dim() == 4:
+                            # 4D: (batch, 1, seq_len, seq_len) - causal attention mask
+                            mtp_attention_mask = attention_mask[:, :, :curr_len, :curr_len]
+                        elif attention_mask.dim() == 2:
+                            # 2D: (batch, seq_len) - padding mask
+                            mtp_attention_mask = attention_mask[:, :curr_len]
+                        else:
+                            raise ValueError(f"Unexpected attention_mask shape: {attention_mask.shape}")
+                    else:
+                        mtp_attention_mask = None
+                    
+                    mtp_position_ids = position_ids[:, :curr_len] if position_ids is not None else None
+                    
+                    mtp_position_embeddings = (
+                        position_embeddings[0][:, :curr_len, :],
+                        position_embeddings[1][:, :curr_len, :]
+                    ) if position_embeddings is not None else None
+                    
+                    # 4. MTP模块前向传播
+                    mtp_hidden = mtp_module(
+                        hidden_prev=curr_hidden_input,        
+                        target_embeds=next_token_embeds,    
+                        attention_mask=mtp_attention_mask,
+                        position_ids=mtp_position_ids,
+                        position_embeddings=mtp_position_embeddings,
+                        use_cache=False,
+                        output_attentions=False,
+                    )
+
+                    # 5. 计算logits和loss
+                    mtp_logits = self.lm_head(mtp_hidden)
+                    
+                    mtp_loss_k = self.loss_function(mtp_logits, mtp_target_labels, self.vocab_size, **loss_kwargs)
+                    
+                    total_mtp_loss += mtp_loss_k
+                    
+                    # 6. 更新hidden给下一个MTP模块
+                    current_hidden = mtp_hidden
+                
+                # 7. 将MTP loss加到总loss中
+                if total_mtp_loss > 0:
+                    loss = loss + mtp_lambda * total_mtp_loss / self.mtp_depth
+        
         if not return_dict:
             output = (logits,) + outputs[1:]
             return (loss,) + output if loss is not None else output

@@ -974,8 +974,8 @@ class MyDataCollator:
             final['labels'].append(new_item['labels'])
             final['position_ids'].append(new_item['position_ids'])
             # row and column
-            temp_column_list = list()
-            temp_row_list = list()
+            temp_column_list = list() # 压缩token在序列中的位置
+            temp_row_list = list() # 压缩token所属的batch索引
             for item in aug_data['tokenized']['locate_index']:
                 start, end, l_inst, n_comp, n_continue = item
                 temp_column_list.extend(
