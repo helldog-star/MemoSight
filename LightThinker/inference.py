@@ -695,9 +695,9 @@ class TokenUtils:
             pos = cot_start + center_offset
             compressed_positions.append(pos)
 
-        # 额外拼接 <|splitter|> <|continue|> position id
-        final_list = [cot_end] + compressed_positions + [cot_end + 1]
-        position_ids_for_epl = torch.tensor(final_list, device=device, dtype=torch.long)
+        # 额外拼接 <|splitter|> <|continue|> position id，cot_end是原本 <|o_1|> position id，现在赋值给 <|continue|>
+        final_list = [cot_end - 1] + compressed_positions + [cot_end]
+        position_ids_for_epl = torch.tensor([final_list], device=device, dtype=torch.long)
         return position_ids_for_epl
 
 # ========== CORE CODE ==========
@@ -1314,22 +1314,21 @@ def _sentence_level_generate(
 
         if use_EPL and IS_COMP_MODE:
             # 这里 position_ids 是 '<|splitter|><|o_0|><|o_1|><|o_2|><|o_3|><|o_4|><|o_5|><|o_6|><|o_7|><|o_8|><|continue|>' 对应的正常位置编码
-            # cot_end = position_ids[0][0] 是 <|splitter|> position id
-            # cot_start 是 cot first token position id
-            # cot_end - cot_start 是 cot 长度，也就是 n_abandoned
-            cot_end = int(position_ids[0][0].item())  
-            step = (cot_end - cot_start).item() / len(comp_config.get_output_comp_token_id())
-            # compression_ratio = (cot_end - cot_start).item() // len(comp_config.get_output_comp_token_id())
-            # compression_ratio = max(compression_ratio, 1)
+            # position_ids[0][0] 是 <|splitter|> position id
+            # cot_start 是 cot first token position id，cot_end 是 <|o_0|> position id
+            # cot_end - cot_start 是算上<|splitter|>的 cot 长度，也就是 n_abandoned
+            # 训练时 <|splitter|> 也是算在 n_abandoned 之内的
+            cot_end = int(position_ids[0][0].item()) + 1
+            step = (cot_end - cot_start) / len(comp_config.get_output_comp_token_id())
             indicator = [
                     cot_start, # cot first token position id
-                    cot_end, # <|splitter|> position id，下一个位置是压缩token
+                    cot_end, # <|o_1|> position id
                     step, # 压缩步长
                     len(comp_config.get_output_comp_token_id()) # 压缩token数量
                 ]
             # 更新cot位置
-            # 这里算上 <|splitter|> <|continue|>，对应下一段 cot 的 first token position id
-            cot_start = cot_end + 2
+            # 这里算上 <|continue|>，对应下一段 cot 的 first token position id
+            cot_start = cot_end + 1
             position_ids = token_utils.use_epl_for_compression(position_ids, indicator)
             use_compression_all_count += len(comp_config.get_output_comp_token_id())
             
@@ -1501,7 +1500,7 @@ def get_parser():
     parser.add_argument('--index', type=int)        
     parser.add_argument('--use_EPL', type=str2bool, default=False)
     parser.add_argument(
-        '--dataset',
+        '--datasets',
         type=str,
         nargs='+',  # 允许多个值
         default=['mmlu', 'gsm8k', 'gpqa', 'bbh'],  # 默认全部
