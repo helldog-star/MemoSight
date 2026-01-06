@@ -1,14 +1,28 @@
+# 替换成你的conda path
+eval "$(/mnt/dolphinfs/hdd_pool/docker/user/hadoop-aipnlp/FMG/liuxinyu67/miniconda/bin/conda shell.bash hook)"
+which conda
+conda activate lightthinker
+which python
+
+# cd到你的项目路径
+cd /mnt/dolphinfs/hdd_pool/docker/user/hadoop-aipnlp/FMG/liuxinyu67/RRcot
+
 export PYTHONPATH=$PYTHONPATH:$(pwd)
 # we will load model from `output/{model_tag}/checkpoint-{args.ckpt}`
 
+
+# ============================================== 修改评测模型换这里的配置就行 =========================================================
 # `model_tag` is the filename under the output/ folder, 
 # corresponding to line 1461 of the code in LightThinker/inference.py.
-# model_tag="lighthinker_7b_aug-wo-pc"
-model_tag="lighthinker-epl_1d5b_aug-wo-pc"
-
+model_tag="lighthinker-epl-v2_7b_aug-wo-pc"
 # `model_short_tag` is used to save file, 
 # corresponding to line 1691 of the code in LightThinker/inference.py.
-model_short_tag="inf_lightthinker_epl_r1distillqwen1.5b"
+model_short_tag="inf_lighthinker_epl_v2_r1distillqwen7b_ckpt1305_fix_infer"
+ckpt=1305
+output_tag="inf_lighthinker_epl_v2_r1distillqwen7b_ckpt1305_fix_infer"
+repetition_penalty=1.1
+# ================================================================================================================================
+
 
 model_type="qwen"
 tokenizer_path="/mnt/dolphinfs/hdd_pool/docker/user/hadoop-aipnlp/FMG/liuxinyu67/models/Qwen2.5-1.5B-Instruct"
@@ -16,9 +30,6 @@ bos_token="<|im_start|>"
 eos_token="<|im_end|>"
 compress_config="./configs/LightThinker/qwen/v1.json"
 
-ckpt=1310
-# output_tag="inf_lightthinker_r1distillqwen1.5b"
-output_tag="inf_lightthinker_epl_r1distillqwen1.5b"
 # `model_path` is an optional argument
 # if you set the `model_path`, the arguments `ckpt` and `model_tag` will be ignored.
 # see line 1460 of the code in LightThinker/inference.py for more details.
@@ -51,6 +62,8 @@ for subfolder in "${subfolders[@]}"; do
     fi
 done
 
+echo "Inference model: ${model_tag}..."
+
 #用于设置总共几张卡和开多少进程
 target_gpus=( 0 1 2 3 )
 process_per_gpu=4
@@ -71,13 +84,15 @@ do
         
         echo "    Starting task index ${real_index}/${split_size}..."
 
-        CUDA_VISIBLE_DEVICES=$device nohup python "${root_dir}/inference.py" \
+        # 评测EPL训练模型时 --EPL=True 
+        CUDA_VISIBLE_DEVICES=$device nohup python "${root_dir}/inference_repe.py" \
             --model_tag $model_tag \
             --model_short_tag $model_short_tag \
             --ckpt $ckpt \
             --tokenizer_path $tokenizer_path \
             --compress_config $compress_config \
             --max_new_tokens $max_new_tokens \
+            --repetition_penalty $repetition_penalty \
             --output_tag $output_tag \
             --model_type $model_type \
             --bos_token $bos_token \
@@ -92,9 +107,24 @@ do
             --compress_prompt $compress_prompt \
             --update_attention_method $update_attention_method \
             --split_size $split_size \
+            --use_EPL True \
             --index $real_index > "ours_infer_log/${rolling_rope}_${compress_prompt}/${real_index}${prefix}_${model_short_tag}_${ckpt}.txt" 2>&1 &
         
         sleep 5
     done
     ((logical_id++))
 done
+
+echo ""
+echo "=========================================="
+echo "All processes launched. Waiting for completion..."
+echo "Started at: $(date)"
+echo "=========================================="
+
+wait  # 等待所有后台进程（&）完成
+
+echo ""
+echo "=========================================="
+echo "All processes completed!"
+echo "Finished at: $(date)"
+echo "=========================================="

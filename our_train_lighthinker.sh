@@ -1,3 +1,11 @@
+eval "$(/mnt/dolphinfs/hdd_pool/docker/user/hadoop-aipnlp/FMG/liuxinyu67/miniconda/bin/conda shell.bash hook)"
+which conda
+conda activate lightthinker
+which python
+
+root_dir="/mnt/dolphinfs/hdd_pool/docker/user/hadoop-aipnlp/FMG/liuxinyu67/RRcot"
+cd $root_dir
+
 export PYTHONPATH=$PYTHONPATH:$(pwd)
 # model 
 model_type="qwen"
@@ -11,17 +19,17 @@ conf_version="v1"
 max_length=4096
 lr_scheduler_type="cosine"
 epochs=5   #change to 1 for test
-lr=1e-5
+lr=2e-5
 save_steps=2
-deepspeed="./configs/ds_z3_offload_config.json"
+deepspeed="$root_dir/configs/ds_z3_offload_config.json"
 micro_batch_size=8
 gradient_accumulation_steps=2
 warmup_ratio=0.05
-mode="normal"
+mode="aug-wo-pc"
 warmup_steps=0
 
 # others
-init_tag="baseline"
+init_tag="lighthinker"
 model_size="1d5b"
 train_path="./data/train/train.jsonl"
 see_current="false"
@@ -67,10 +75,10 @@ echo "init_tag=${init_tag}"
 
 # att_info="${model_size}-${model_type}-len_${max_length}-see_cur_${see_current}-bi_${bi_directional}-diag_${diagonal}-mode_${mode}"
 # train_info="prefill_compress_${prefill_compress}-hybrid_${hybrid}-epoch_${epochs}-lr_${lr}-bsz_${micro_batch_size}-accumu_${gradient_accumulation_steps}-warm_r_${warmup_ratio}-warm_s_${warmup_steps}-freeze_model_${freeze_model}-train_input_${train_on_input}-qkv_${qkv}-ex_con_${exclude_continue}"
-output_dir="output/${init_tag}_${model_size}_${mode}"
-compress_config="configs/LightThinker/${model_type}/${conf_version}.json"
+output_dir="$root_dir/output/${init_tag}_${model_size}_${mode}"
+compress_config="$root_dir/configs/LightThinker/${model_type}/${conf_version}.json"
 
-deepspeed --include localhost:0,1,2,3 LightThinker/train.py \
+deepspeed --include localhost:0,1,2,3,4,5,6,7 LightThinker/train.py \
     --model_type $model_type \
     --model_path $model_path \
     --tokenizer_path $tokenizer_path \

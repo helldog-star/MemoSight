@@ -1,37 +1,27 @@
+# 替换成你的conda path
 eval "$(/mnt/dolphinfs/hdd_pool/docker/user/hadoop-aipnlp/FMG/liuxinyu67/miniconda/bin/conda shell.bash hook)"
 which conda
 conda activate lightthinker
 which python
 
+# cd到你的项目路径
 cd /mnt/dolphinfs/hdd_pool/docker/user/hadoop-aipnlp/FMG/liuxinyu67/RRcot
 
 export PYTHONPATH=$PYTHONPATH:$(pwd)
 # we will load model from `output/{model_tag}/checkpoint-{args.ckpt}`
 
-# 7b lighthinker-epl-v2
+
+# ============================================== 修改评测模型换这里的配置就行 =========================================================
+# `model_tag` is the filename under the output/ folder, 
+# corresponding to line 1461 of the code in LightThinker/inference.py.
 model_tag="lighthinker-epl-v2_7b_aug-wo-pc"
+# `model_short_tag` is used to save file, 
+# corresponding to line 1691 of the code in LightThinker/inference.py.
 model_short_tag="inf_lighthinker_epl_v2_r1distillqwen7b_ckpt1305_fix_infer"
 ckpt=1305
 output_tag="inf_lighthinker_epl_v2_r1distillqwen7b_ckpt1305_fix_infer"
+# ================================================================================================================================
 
-# # 7b mtpac
-# model_tag="mtpac_log_7b_aug-wo-pc"
-# model_short_tag="inf_mtpac_ckpt1305"
-# ckpt=1305
-# output_tag="inf_mtpac_ckpt1305"
-
-
-# 1.5b lighthinker-epl-v2-ml8192
-# model_tag="lighthinker-epl-v2-ml8192_1d5b_aug-wo-pc"
-# model_short_tag="inf_lighthinker_epl_v2_ml8192_r1distillqwen1.5b_ckpt1305"
-# ckpt=1305
-# output_tag="inf_lighthinker_epl_v2_ml8192_r1distillqwen1.5b_ckpt1305"
-
-# # 7b lighthinker-epl-v2-ml8192
-# model_tag="lighthinker-epl-v2-ml8192_7b_aug-wo-pc"
-# model_short_tag="inf_lighthinker_epl_v2_ml8192_r1distillqwen7b_ckpt1305"
-# ckpt=1305
-# output_tag="inf_lighthinker_epl_v2_ml8192_r1distillqwen7b_ckpt1305"
 
 model_type="qwen"
 tokenizer_path="/mnt/dolphinfs/hdd_pool/docker/user/hadoop-aipnlp/FMG/liuxinyu67/models/Qwen2.5-1.5B-Instruct"
@@ -39,14 +29,11 @@ bos_token="<|im_start|>"
 eos_token="<|im_end|>"
 compress_config="./configs/LightThinker/qwen/v1.json"
 
-
 # `model_path` is an optional argument
 # if you set the `model_path`, the arguments `ckpt` and `model_tag` will be ignored.
 # see line 1460 of the code in LightThinker/inference.py for more details.
 # model_path="/mnt/jinbo/RLRM/lightthinker/output/cosine1.5b-qwen-len_4096-see_cur_false-bi_false-diag_false-mode_aug-wo-pc-prefill_compress_false-hybrid_false-epoch_5-lr_2e-5-bsz_1-accumu_4-warm_r_0.05-warm_s_0-freeze_model_false-train_input_false-qkv_no-ex_con_false/checkpoint-5220"
 max_new_tokens=10240
-
-# datasets=gpqa
 
 root_dir="./LightThinker"
 
@@ -77,7 +64,7 @@ done
 echo "Inference model: ${model_tag}..."
 
 #用于设置总共几张卡和开多少进程
-target_gpus=( 0 1 2 3 4 5 6 7 )
+target_gpus=( 0 1 2 3 )
 process_per_gpu=4
 gpu_count=${#target_gpus[@]}
 # 自动计算总切片数 (假如用了2张卡，每张3进程，split_size就是6)
@@ -96,6 +83,7 @@ do
         
         echo "    Starting task index ${real_index}/${split_size}..."
 
+        # 评测EPL训练模型时 --EPL=True 
         CUDA_VISIBLE_DEVICES=$device nohup python "${root_dir}/inference.py" \
             --model_tag $model_tag \
             --model_short_tag $model_short_tag \

@@ -1,32 +1,49 @@
+eval "$(/mnt/dolphinfs/hdd_pool/docker/user/hadoop-aipnlp/FMG/liuxinyu67/miniconda/bin/conda shell.bash hook)"
+which conda
+conda activate lightthinker
+which python
+
+cd /mnt/dolphinfs/hdd_pool/docker/user/hadoop-aipnlp/FMG/liuxinyu67/RRcot
+
 export PYTHONPATH=$PYTHONPATH:$(pwd)
 # we will load model from `output/{model_tag}/checkpoint-{args.ckpt}`
 
-# `model_tag` is the filename under the output/ folder, 
-# corresponding to line 1461 of the code in LightThinker/inference.py.
-# model_tag="lighthinker_7b_aug-wo-pc"
-model_tag="1"
+# # 7b lighthinker-epl-v2
+# model_tag="lighthinker-epl-v2_7b_aug-wo-pc"
+# model_short_tag="inf_lighthinker_epl_v2_r1distillqwen7b_ckpt1305_fix_infer_repe_pena"
+# ckpt=1305
+# output_tag="inf_lighthinker_epl_v2_r1distillqwen7b_ckpt1305_fix_infer_repe_pena"
+# repetition_penalty=1.1
 
-# `model_short_tag` is used to save file, 
-# corresponding to line 1691 of the code in LightThinker/inference.py.
-model_short_tag="inf_lightthinker_epl_r1distillqwen1.5b"
+# # 7b lighthinker
+# model_tag="lighthinker_7b_aug-wo-pc"
+# model_short_tag="inf_lighthinker_r1distillqwen7b_ckpt1305_fix_infer_repe_pena"
+# ckpt=1305
+# output_tag="inf_lighthinker_r1distillqwen7b_ckpt1305_fix_infer_repe_pena"
+# repetition_penalty=1.1
+
+# 7b mtpac
+model_tag="mtpac_log_7b_aug-wo-pc"
+model_short_tag="inf_mtpac_ckpt1305_repe_pena"
+ckpt=1305
+output_tag="inf_mtpac_ckpt1305_repe_pena"
+repetition_penalty=1.1
+
 
 model_type="qwen"
-tokenizer_path="/mnt/jinbo/RLRM/model/Qwen/Qwen2.5-0.5B-Instruct"
+tokenizer_path="/mnt/dolphinfs/hdd_pool/docker/user/hadoop-aipnlp/FMG/liuxinyu67/models/Qwen2.5-1.5B-Instruct"
 bos_token="<|im_start|>"
 eos_token="<|im_end|>"
 compress_config="./configs/LightThinker/qwen/v1.json"
 
-ckpt=5220
-# output_tag="inf_lightthinker_r1distillqwen1.5b"
-output_tag="inf_lightthinker_epl_r1distillqwen1.5b"
+
 # `model_path` is an optional argument
 # if you set the `model_path`, the arguments `ckpt` and `model_tag` will be ignored.
 # see line 1460 of the code in LightThinker/inference.py for more details.
 # model_path="/mnt/jinbo/RLRM/lightthinker/output/cosine1.5b-qwen-len_4096-see_cur_false-bi_false-diag_false-mode_aug-wo-pc-prefill_compress_false-hybrid_false-epoch_5-lr_2e-5-bsz_1-accumu_4-warm_r_0.05-warm_s_0-freeze_model_false-train_input_false-qkv_no-ex_con_false/checkpoint-5220"
 max_new_tokens=10240
-#额外添加长度惩罚系数,1.0的话自动忽略
-repetition_penalty=1.0
 
+# datasets=gpqa
 
 root_dir="./LightThinker"
 
@@ -54,8 +71,10 @@ for subfolder in "${subfolders[@]}"; do
     fi
 done
 
+echo "Inference model: ${model_tag}..."
+
 #用于设置总共几张卡和开多少进程
-target_gpus=( 0 1 2 3 )
+target_gpus=( 0 1 2 3 4 5 6 7 )
 process_per_gpu=4
 gpu_count=${#target_gpus[@]}
 # 自动计算总切片数 (假如用了2张卡，每张3进程，split_size就是6)
@@ -74,7 +93,7 @@ do
         
         echo "    Starting task index ${real_index}/${split_size}..."
 
-        CUDA_VISIBLE_DEVICES=$device nohup python "${root_dir}/jb_inference.py" \
+        CUDA_VISIBLE_DEVICES=$device nohup python "${root_dir}/inference_repe.py" \
             --model_tag $model_tag \
             --model_short_tag $model_short_tag \
             --ckpt $ckpt \
@@ -96,9 +115,24 @@ do
             --compress_prompt $compress_prompt \
             --update_attention_method $update_attention_method \
             --split_size $split_size \
+            --use_EPL True \
             --index $real_index > "ours_infer_log/${rolling_rope}_${compress_prompt}/${real_index}${prefix}_${model_short_tag}_${ckpt}.txt" 2>&1 &
         
         sleep 5
     done
     ((logical_id++))
 done
+
+echo ""
+echo "=========================================="
+echo "All processes launched. Waiting for completion..."
+echo "Started at: $(date)"
+echo "=========================================="
+
+wait  # 等待所有后台进程（&）完成
+
+echo ""
+echo "=========================================="
+echo "All processes completed!"
+echo "Finished at: $(date)"
+echo "=========================================="
