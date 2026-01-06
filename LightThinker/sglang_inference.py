@@ -54,6 +54,7 @@ async def main_async():  # 改为 async 函数
         "top_p": 1.0,
         "top_k": -1,
         "skip_special_tokens": False,
+        "repetition_penalty": 1.1, #可选是否加入重复惩罚
     }
 
     final_save_dir = os.path.join(args.output_dir, args.extend_name)
