@@ -1362,6 +1362,10 @@ class Qwen2ForCausalLM(Qwen2PreTrainedModel, GenerationMixin):
         if labels is not None:
             loss = self.loss_function(logits, labels, self.vocab_size, **loss_kwargs)
 
+            lm_loss = loss
+            self._last_lm_loss = lm_loss.detach().item()
+            self._last_mtp_loss = 0.0  # 初始化为0
+
             # MTP aux loss
             if self.mtp_depth > 0:
                 # MTP权重系数
@@ -1454,7 +1458,10 @@ class Qwen2ForCausalLM(Qwen2PreTrainedModel, GenerationMixin):
                 
                 # 7. 将MTP loss加到总loss中
                 if total_mtp_loss > 0:
-                    loss = loss + mtp_lambda * total_mtp_loss / self.mtp_depth
+                    mtp_loss = mtp_lambda * total_mtp_loss / self.mtp_depth
+                    loss = lm_loss + mtp_loss
+                    
+                    self._last_mtp_loss = mtp_loss.detach().item()
         
         if not return_dict:
             output = (logits,) + outputs[1:]

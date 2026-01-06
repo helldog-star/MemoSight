@@ -14,11 +14,18 @@ export PYTHONPATH=$PYTHONPATH:$(pwd)
 # `model_short_tag` is used to save file, 
 # corresponding to line 1691 of the code in LightThinker/inference.py.
 
-# 7b lighthinker-epl-v2
-model_tag="lighthinker-epl-v2_7b_aug-wo-pc"
-model_short_tag="inf_lighthinker_epl_v2_r1distillqwen7b_ckpt784"
-ckpt=784
-output_tag="inf_lighthinker_epl_v2_r1distillqwen7b_ckpt784"
+# # 7b lighthinker-epl-v2
+# model_tag="lighthinker-epl-v2_7b_aug-wo-pc"
+# model_short_tag="inf_lighthinker_epl_v2_r1distillqwen7b_ckpt784"
+# ckpt=784
+# output_tag="inf_lighthinker_epl_v2_r1distillqwen7b_ckpt784"
+
+# 7b mtpac
+model_tag="mtpac_log_7b_aug-wo-pc"
+model_short_tag="inf_mtpac_ckpt1305"
+ckpt=1305
+output_tag="inf_mtpac_ckpt1305"
+
 
 # 1.5b lighthinker-epl-v2-ml8192
 # model_tag="lighthinker-epl-v2-ml8192_1d5b_aug-wo-pc"
@@ -46,8 +53,7 @@ compress_config="./configs/LightThinker/qwen/v1.json"
 # model_path="/mnt/jinbo/RLRM/lightthinker/output/cosine1.5b-qwen-len_4096-see_cur_false-bi_false-diag_false-mode_aug-wo-pc-prefill_compress_false-hybrid_false-epoch_5-lr_2e-5-bsz_1-accumu_4-warm_r_0.05-warm_s_0-freeze_model_false-train_input_false-qkv_no-ex_con_false/checkpoint-5220"
 max_new_tokens=10240
 
-# dataset=all
-dataset=gpqa
+# dataset=gpqa
 
 root_dir="./LightThinker"
 
@@ -119,8 +125,7 @@ do
             --update_attention_method $update_attention_method \
             --split_size $split_size \
             --use_EPL True \
-            --index $real_index \
-            --dataset $dataset > "ours_infer_log/${rolling_rope}_${compress_prompt}/${real_index}${prefix}_${model_short_tag}_${ckpt}.txt" 2>&1 &
+            --index $real_index > "ours_infer_log/${rolling_rope}_${compress_prompt}/${real_index}${prefix}_${model_short_tag}_${ckpt}.txt" 2>&1 &
         
         sleep 5
     done

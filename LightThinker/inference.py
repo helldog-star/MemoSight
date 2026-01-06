@@ -1500,6 +1500,14 @@ def get_parser():
     # start from 1
     parser.add_argument('--index', type=int)        
     parser.add_argument('--use_EPL', type=str2bool, default=False)
+    parser.add_argument(
+        '--dataset',
+        type=str,
+        nargs='+',  # 允许多个值
+        default=['mmlu', 'gsm8k', 'gpqa', 'bbh'],  # 默认全部
+        choices=['mmlu', 'gsm8k', 'gpqa', 'bbh'],
+        help='Datasets to evaluate. Can specify multiple: --datasets mmlu gsm8k'
+    )
 
     args = parser.parse_args()
     return args
@@ -1732,12 +1740,26 @@ def main():
         args, comp_config
     )
 
-    task_list = [
-        (MMLUReader(), "mmlu"),
-        (GSM8KReader(), "gsm8k"),
-        (GPQAReader(), "gpqa"),
-        (BBHReader(), "bbh"),
-    ]
+    # task_list = [
+    #     (MMLUReader(), "mmlu"),
+    #     (GSM8KReader(), "gsm8k"),
+    #     (GPQAReader(), "gpqa"),
+    #     (BBHReader(), "bbh"),
+    # ]
+
+    all_tasks = {
+        "mmlu": MMLUReader(),
+        "gsm8k": GSM8KReader(),
+        "gpqa": GPQAReader(),
+        "bbh": BBHReader(),
+    }
+
+    task_list = [(all_tasks[name], name) for name in args.datasets if name in all_tasks]
+    
+    # 打印要评估的数据集
+    print(f"\n{'='*60}")
+    print(f"Evaluating datasets: {', '.join(args.datasets)}")
+    print(f"{'='*60}\n")
 
     for reader, name in task_list:
         eval_dataset(

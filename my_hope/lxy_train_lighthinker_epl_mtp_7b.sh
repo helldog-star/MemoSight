@@ -22,14 +22,14 @@ epochs=5   #change to 1 for test
 lr=2e-5
 save_steps=2
 deepspeed="$root_dir/configs/ds_z3_offload_config.json"
-micro_batch_size=4
-gradient_accumulation_steps=2
+micro_batch_size=2
+gradient_accumulation_steps=4
 warmup_ratio=0.05
 mode="aug-wo-pc"
 warmup_steps=0
 
 # others
-init_tag="lac"
+init_tag="mtpac_log"
 model_size="7b"
 train_path="$root_dir/data/train/train.jsonl"
 see_current="false"

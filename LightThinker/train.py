@@ -54,6 +54,47 @@ class SaveTokenizerCallback(TrainerCallback):
         if os.path.exists(checkpoint_folder):
             self.tokenizer.save_pretrained(checkpoint_folder)
 
+
+class MTPLossCallback(TrainerCallback):
+    """在日志记录时添加MTP相关的loss（支持梯度累积）"""
+    
+    def __init__(self):
+        self.lm_loss_sum = 0.0
+        self.mtp_loss_sum = 0.0
+        # self.loss_count = 0
+    
+    # huggingface和deepspeed配合时，HF Trainer会把梯度平均的工作交给deepspeed
+    # 正常应该按照梯度累积做平均，但是这里与Trainer的总和对齐
+    # 实际loss为记录loss的 1/gradient_accumulation_steps
+    def on_step_end(self, args, state, control, model=None, **kwargs):
+        """每个训练步结束时累积loss"""
+        if model is not None:
+            # 处理模型包装
+            if hasattr(model, 'module'):
+                model = model.module
+            
+            # 累积loss
+            if hasattr(model, '_last_lm_loss'):
+                self.lm_loss_sum += model._last_lm_loss
+            if hasattr(model, '_last_mtp_loss'):
+                self.mtp_loss_sum += model._last_mtp_loss
+            # self.loss_count += 1
+    
+    def on_log(self, args, state, control, logs=None, **kwargs):
+        """记录平均loss"""
+        if logs is not None and self.loss_count > 0:
+            # 计算平均值
+            # logs['lm_loss'] = self.lm_loss_sum / self.loss_count
+            # logs['mtp_loss'] = self.mtp_loss_sum / self.loss_count
+            logs['lm_loss'] = self.lm_loss_sum 
+            logs['mtp_loss'] = self.mtp_loss_sum 
+            
+            # 重置累积器
+            self.lm_loss_sum = 0.0
+            self.mtp_loss_sum = 0.0
+            # self.loss_count = 0
+
+
 def get_parser():
     parser = argparse.ArgumentParser()
     parser.add_argument('--local_rank', type=int, help="just used for deepspeed.")
@@ -298,7 +339,7 @@ def main():
         train_dataset=dataset,
         args=training_config,
         data_collator=data_collator,
-        callbacks=[SaveTokenizerCallback(tokenizer)]  # 添加回调
+        callbacks=[SaveTokenizerCallback(tokenizer), MTPLossCallback()]  # 添加回调
     )
     # 在加载检查点时使用上下文管理器
     if resume_from_checkpoint:
