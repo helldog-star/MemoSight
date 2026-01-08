@@ -28,6 +28,7 @@ sglang_inference_results/
 *debug*
 
 # Data
+data/train
 data/*
 data/train/dataset_cache/
 output/
@@ -44,3 +45,5 @@ lxy_hope/
 meteor_inference.sh
 meteor_train_lightthinker.sh
 my_utils/
+yuyu_train.sh
+

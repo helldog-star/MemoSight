@@ -82,7 +82,7 @@ class MTPLossCallback(TrainerCallback):
     
     def on_log(self, args, state, control, logs=None, **kwargs):
         """记录平均loss"""
-        if logs is not None and self.loss_count > 0:
+        if logs is not None:
             # 计算平均值
             # logs['lm_loss'] = self.lm_loss_sum / self.loss_count
             # logs['mtp_loss'] = self.mtp_loss_sum / self.loss_count
