@@ -1229,6 +1229,7 @@ class Qwen2ForCausalLM(Qwen2PreTrainedModel, GenerationMixin):
         self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
 
         self.mtp_depth = getattr(config, "mtp_depth", 0)
+        self.token_contribution = getattr(config, "token_contribution", 1)
         if self.mtp_depth > 0:
             self.mtp_modules = nn.ModuleList([
                     Qwen2MTPModule(
@@ -1458,7 +1459,7 @@ class Qwen2ForCausalLM(Qwen2PreTrainedModel, GenerationMixin):
                 
                 # 7. 将MTP loss加到总loss中
                 if total_mtp_loss > 0:
-                    mtp_loss = mtp_lambda * total_mtp_loss
+                    mtp_loss = mtp_lambda * total_mtp_loss / self.token_contribution
                     loss = lm_loss + mtp_loss
                     
                     self._last_mtp_loss = mtp_loss.detach().item()
