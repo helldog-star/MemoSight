@@ -1,5 +1,6 @@
 {
     "mtp_depth": 3, 
     "mtp_lambda": 1.0,
-    "mtp_hidden_size": null
+    "mtp_hidden_size": null,
+    "token_contribution": 1
 }
