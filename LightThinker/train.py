@@ -26,10 +26,10 @@ else:
 
 
 
-deepspeed.init_distributed(
-    dist_backend='nccl', 
-    timeout=timedelta(minutes=120) 
-)
+# deepspeed.init_distributed(
+#     dist_backend='nccl', 
+#     timeout=timedelta(minutes=120) 
+# )
 
 from config import Config
 from LightThinker.utils import _print, IGNORE_LABEL_ID, str2bool
@@ -235,7 +235,7 @@ def get_dataset_and_data_collator(
     sample_config:Dict,
 ) -> Tuple[MyDataset, MyDataCollator]:
     
-    cache_dir=os.path.join("./data/train","dataset_cache")
+    cache_dir=os.path.join(os.path.dirname(args.train_path),"dataset_cache")
     tokenizer_name = os.path.basename(os.path.normpath(args.tokenizer_path))
     dataset_name = os.path.splitext(os.path.basename(args.train_path))[0]
     cache_filename=f"cache_{tokenizer_name}_{dataset_name}.pt"
@@ -250,7 +250,7 @@ def get_dataset_and_data_collator(
         output_compress_instruction=args.output_compress_instruction,
         cache_dir=cache_dir,
         cache_filename=cache_filename,
-        force_preprocess=True,
+        force_preprocess=False,
         local_rank=local_rank,
         use_EPL=args.use_EPL,
     )
