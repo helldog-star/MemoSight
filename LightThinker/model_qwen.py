@@ -1458,7 +1458,7 @@ class Qwen2ForCausalLM(Qwen2PreTrainedModel, GenerationMixin):
                 
                 # 7. 将MTP loss加到总loss中
                 if total_mtp_loss > 0:
-                    mtp_loss = mtp_lambda * total_mtp_loss / self.mtp_depth
+                    mtp_loss = mtp_lambda * total_mtp_loss
                     loss = lm_loss + mtp_loss
                     
                     self._last_mtp_loss = mtp_loss.detach().item()

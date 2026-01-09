@@ -1,5 +1,5 @@
 {
     "mtp_depth": 3, 
-    "mtp_lambda": 0.1,
+    "mtp_lambda": 1.0,
     "mtp_hidden_size": null
 }
