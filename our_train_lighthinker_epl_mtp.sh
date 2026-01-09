@@ -29,7 +29,7 @@ mode="aug-wo-pc"
 warmup_steps=0
 
 # others
-init_tag="lighthinker"
+init_tag="lighthinker_mtp_lambda_1d0"
 model_size="1d5b"
 train_path="./data/train/train.jsonl"
 see_current="false"
