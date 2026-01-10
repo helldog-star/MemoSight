@@ -1747,9 +1747,9 @@ def main():
     # ]
 
     all_tasks = {
-        # "mmlu": MMLUReader(),
-        # "gsm8k": GSM8KReader(),
-        # "gpqa": GPQAReader(),
+        "mmlu": MMLUReader(),
+        "gsm8k": GSM8KReader(),
+        "gpqa": GPQAReader(),
         "bbh": BBHReader(),
     }
 

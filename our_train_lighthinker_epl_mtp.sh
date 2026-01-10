@@ -81,7 +81,7 @@ echo "init_tag=${init_tag}"
 # att_info="${model_size}-${model_type}-len_${max_length}-see_cur_${see_current}-bi_${bi_directional}-diag_${diagonal}-mode_${mode}"
 # train_info="prefill_compress_${prefill_compress}-hybrid_${hybrid}-epoch_${epochs}-lr_${lr}-bsz_${micro_batch_size}-accumu_${gradient_accumulation_steps}-warm_r_${warmup_ratio}-warm_s_${warmup_steps}-freeze_model_${freeze_model}-train_input_${train_on_input}-qkv_${qkv}-ex_con_${exclude_continue}"
 
-output_dir="$save_dir/output/${init_tag}_${model_size}_${mode}"
+output_dir="$save_dir/output/${init_tag}"
 compress_config="$root_dir/configs/LightThinker/${model_type}/${conf_version}.json"
 aux_config="$root_dir/configs/mtp_aux_config.json"
 
