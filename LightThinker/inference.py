@@ -1747,9 +1747,9 @@ def main():
     # ]
 
     all_tasks = {
-        "mmlu": MMLUReader(),
-        "gsm8k": GSM8KReader(),
-        "gpqa": GPQAReader(),
+        # "mmlu": MMLUReader(),
+        # "gsm8k": GSM8KReader(),
+        # "gpqa": GPQAReader(),
         "bbh": BBHReader(),
     }
 
@@ -1766,7 +1766,7 @@ def main():
             tokenizer=tokenizer,
             reader=reader,
             comp_config=comp_config,
-            output_file=f"inference_results/{args.output_tag}/{name}/{args.ckpt}/{args.index}-{args.split_size}{args.model_short_tag}.jsonl",
+            output_file=f"{args.output_tag}/{name}/{args.ckpt}/{args.index}-{args.split_size}{args.model_short_tag}.jsonl",
             # output_file=f"inference_results/{args.output_tag}/{name}_{args.model_tag}_{args.ckpt}.jsonl",
             max_new_tokens=args.max_new_tokens,
             max_prompt_len=max_prompt_len,

@@ -14,13 +14,16 @@ export PYTHONPATH=$PYTHONPATH:$(pwd)
 # ============================================== 修改评测模型换这里的配置就行 =========================================================
 # `model_tag` is the filename under the output/ folder, 
 # corresponding to line 1461 of the code in LightThinker/inference.py.
-model_tag="lighthinker-epl-v2_7b_aug-wo-pc"
+model_tag="lighthinker_epl_mtp_lambda_1d0_7b_aug-wo-pc"
 # `model_short_tag` is used to save file, 
 # corresponding to line 1691 of the code in LightThinker/inference.py.
-model_short_tag="inf_lighthinker_epl_v2_r1distillqwen7b_ckpt1305_fix_infer"
 ckpt=1305
-output_tag="inf_lighthinker_epl_v2_r1distillqwen7b_ckpt1305_fix_infer"
+model_short_tag="${model_tag}_ckpt${ckpt}_fix_infer"
 repetition_penalty=1.1
+# ================================== zrs修改保存路径 ==========================================
+output_path="/mnt/zhaorunsong/lx/rrcot_test"
+output_tag=f"${output_path}/${model_short_tag}"
+# ================================== zrs修改保存路径 ==========================================
 # ================================================================================================================================
 
 
@@ -49,18 +52,23 @@ output_compress_instruction="None"
 prefill_compress="false"
 update_attention_method="local"
 
+
 # check "ours_infer_log" 
-if [ ! -d "ours_infer_log" ]; then
-    echo "Creating ours_infer_log directory..."
-    mkdir ours_infer_log
+if [ ! -d "${output_path}/ours_infer_log" ]; then
+    echo "Creating ${output_path}/ours_infer_log directory..."
+    mkdir -p "${output_path}/ours_infer_log"
 fi
+
 subfolders=("true_true" "true_false" "false_false" "false_true")
 for subfolder in "${subfolders[@]}"; do
-    if [ ! -d "ours_infer_log/$subfolder" ]; then
-        echo "Creating $subfolder directory..."
-        mkdir "ours_infer_log/$subfolder"
+    folder_path="${output_path}/ours_infer_log/${subfolder}"
+    if [ ! -d "$folder_path" ]; then
+        echo "Creating $folder_path directory..."
+        mkdir -p "$folder_path"
     fi
 done
+
+
 
 echo "Inference model: ${model_tag}..."
 
@@ -108,7 +116,7 @@ do
             --update_attention_method $update_attention_method \
             --split_size $split_size \
             --use_EPL True \
-            --index $real_index > "ours_infer_log/${rolling_rope}_${compress_prompt}/${real_index}${prefix}_${model_short_tag}_${ckpt}.txt" 2>&1 &
+            --index $index > "${output_path}/ours_infer_log/${rolling_rope}_${compress_prompt}/${index}${prefix}_${model_short_tag}_${ckpt}.txt" 2>&1 &
         
         sleep 5
     done

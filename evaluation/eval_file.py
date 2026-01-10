@@ -11,13 +11,13 @@ from constant import CLASS_NORMAL, CLASS_CACHE, CLASS_ANCHOR, CLASS_TOKEN
 
 class Reference:
 
-    PATH_TEMPLATE = "./data/eval/{name}.jsonl"
+    PATH_TEMPLATE = "{evaluation_data_path}/{name}.jsonl"
 
-    def __init__(self, dataset_name:str, interaction:bool):
+    def __init__(self, evaluation_data_path:str, dataset_name:str, interaction:bool):
         self.dataset_name = dataset_name
-        print(self.PATH_TEMPLATE.format(name=dataset_name))
+        print(self.PATH_TEMPLATE.format(evaluation_data_path=evaluation_data_path,name=dataset_name))
         self.meta_data_list:List[Dict] = read_jsonl(
-            self.PATH_TEMPLATE.format(name=dataset_name)
+            self.PATH_TEMPLATE.format(evaluation_data_path=evaluation_data_path,name=dataset_name)
         )
         self.interaction:bool = interaction
     
@@ -76,8 +76,8 @@ class Reference:
             return self.meta_data_list[idx]['meta_info']['domain']
     
     def update(self):
-        _print(f"updating {self.PATH_TEMPLATE.format(name=self.dataset_name)} ...")
-        with jsonlines.open(self.PATH_TEMPLATE.format(name=self.dataset_name), 'w') as writer:
+        _print(f"updating {self.PATH_TEMPLATE.format(evaluation_data_path=self.evaluation_data_path, name=self.dataset_name)} ...")
+        with jsonlines.open(self.PATH_TEMPLATE.format(evaluation_data_path=self.evaluation_data_path, name=self.dataset_name), 'w') as writer:
             pbar = tqdm(total=len(self.meta_data_list))
             for item in self.meta_data_list:
                 pbar.update(1)
@@ -332,6 +332,7 @@ def get_parser():
 
     parser.add_argument('--eos_token', type=str)
     parser.add_argument('--bos_token', type=str)
+    parser.add_argument('--evaluation_data_path', type=str)
 
     args = parser.parse_args()
     return args
@@ -377,7 +378,7 @@ def main():
 
     file_list:List[str] = args.files
     reference:Reference = Reference(
-        dataset_name=args.dataset, interaction=args.interaction
+        evaluation_data_path=args.evaluation_data_path, dataset_name=args.dataset, interaction=args.interaction
     )
 
     print_interaction_mode_instruction(args)
