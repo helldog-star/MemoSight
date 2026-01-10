@@ -4,14 +4,19 @@
 ```
 # ===== zrs模型保存路径 =======
 save_dir="/mnt/zhaorunsong/lx/rrcot_test"
+init_tag="lighthinker_epl"
 # ===== zrs模型保存路径 =======
 ```
 
 2. 在our_inference_repe.sh中修改如下路径
 ```
-# ======= zrs修改保存路径 =======
+# ======= zrs推理保存路径 =======
+model_tag="lighthinker_epl"
+model_short_tag="lighthinker_epl"
+ckpt=2
 output_path="/mnt/zhaorunsong/lx/rrcot_test"
-# ======= zrs修改保存路径 =======
+model_path="/mnt/zhaorunsong/lx/rrcot_test/output/lighthinker_epl/checkpoint-2"
+# ======= zrs推理保存路径 =======
 ```
 
 3. 在auto_training_inference_evaluate.sh中修改如下
@@ -19,8 +24,6 @@ output_path="/mnt/zhaorunsong/lx/rrcot_test"
 output_path="在2中的our_inference_repe.sh复制过来"
 model_tag="在2中的our_inference_repe.sh复制过来"
 ckpt="在2中的our_inference_repe.sh复制过来"
-output_tag="${output_path}/${model_tag}_ckpt${ckpt}_fix_infer"
-evaluation_data_path="评估数据集的路径末尾是eval文件夹 zhaorunsong/data/eval"
 ```
 
 4. 检查其他环境：如tokenizer_path、model_path等环境内容

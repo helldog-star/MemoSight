@@ -12,17 +12,13 @@ export PYTHONPATH=$PYTHONPATH:$(pwd)
 
 
 # ============================================== 修改评测模型换这里的配置就行 =========================================================
-# `model_tag` is the filename under the output/ folder, 
-# corresponding to line 1461 of the code in LightThinker/inference.py.
-model_tag="lighthinker_epl_mtp_lambda_1d0_7b_aug-wo-pc"
-# `model_short_tag` is used to save file, 
-# corresponding to line 1691 of the code in LightThinker/inference.py.
-ckpt=1305
-model_short_tag="${model_tag}_ckpt${ckpt}_fix_infer"
+model_tag="lighthinker_epl"
+model_short_tag="lighthinker_epl"
 repetition_penalty=1.1
-# ================================== zrs修改保存路径 ==========================================
+ckpt=2
 output_path="/mnt/zhaorunsong/lx/rrcot_test"
-output_tag=f"${output_path}/${model_short_tag}"
+output_tag="${output_path}/${model_tag}/inference"
+model_path="/mnt/zhaorunsong/lx/rrcot_test/output/lighthinker_epl/checkpoint-2"
 # ================================== zrs修改保存路径 ==========================================
 # ================================================================================================================================
 
@@ -36,7 +32,6 @@ compress_config="./configs/LightThinker/qwen/v1.json"
 # `model_path` is an optional argument
 # if you set the `model_path`, the arguments `ckpt` and `model_tag` will be ignored.
 # see line 1460 of the code in LightThinker/inference.py for more details.
-# model_path="/mnt/jinbo/RLRM/lightthinker/output/cosine1.5b-qwen-len_4096-see_cur_false-bi_false-diag_false-mode_aug-wo-pc-prefill_compress_false-hybrid_false-epoch_5-lr_2e-5-bsz_1-accumu_4-warm_r_0.05-warm_s_0-freeze_model_false-train_input_false-qkv_no-ex_con_false/checkpoint-5220"
 max_new_tokens=10240
 
 root_dir="./LightThinker"
@@ -116,7 +111,8 @@ do
             --update_attention_method $update_attention_method \
             --split_size $split_size \
             --use_EPL True \
-            --index $index > "${output_path}/ours_infer_log/${rolling_rope}_${compress_prompt}/${index}${prefix}_${model_short_tag}_${ckpt}.txt" 2>&1 &
+            --model_path $model_path \
+            --index $real_index > "${output_path}/ours_infer_log/${rolling_rope}_${compress_prompt}/${real_index}${prefix}_${model_short_tag}_${ckpt}.txt" 2>&1 &
         
         sleep 5
     done

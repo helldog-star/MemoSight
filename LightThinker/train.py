@@ -26,10 +26,10 @@ else:
 
 
 
-# deepspeed.init_distributed(
-#     dist_backend='nccl', 
-#     timeout=timedelta(minutes=120) 
-# )
+deepspeed.init_distributed(
+    dist_backend='nccl', 
+    timeout=timedelta(minutes=120) 
+)
 
 from config import Config
 from LightThinker.utils import _print, IGNORE_LABEL_ID, str2bool
