@@ -984,6 +984,7 @@ class MyDataCollator:
                 temp_row_list.extend([bsz_id] * n_comp)
                 final['row_comp_index'].extend(temp_row_list)
                 final['column_comp_index'].extend(temp_column_list)
+                temp_column_list = list()
         
         return dict(
             input_ids=torch.as_tensor(

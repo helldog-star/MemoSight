@@ -1,9 +1,9 @@
-eval "$(/mnt/dolphinfs/hdd_pool/docker/user/hadoop-aipnlp/FMG/liuxinyu67/miniconda/bin/conda shell.bash hook)"
-which conda
-conda activate lightinfer
-which python
+# eval "$(/mnt/dolphinfs/hdd_pool/docker/user/hadoop-aipnlp/FMG/liuxinyu67/miniconda/bin/conda shell.bash hook)"
+# which conda
+# conda activate lightinfer
+# which python
 
-cd /mnt/dolphinfs/hdd_pool/docker/user/hadoop-aipnlp/FMG/liuxinyu67/RRcot
+# cd /mnt/dolphinfs/hdd_pool/docker/user/hadoop-aipnlp/FMG/liuxinyu67/RRcot
 
 export PYTHONPATH="$(pwd):${PYTHONPATH}"
 
@@ -12,11 +12,11 @@ export PYTHONPATH="$(pwd):${PYTHONPATH}"
 # datasets="mmlu gsm8k gpqa bbh"
 
 # 评测COT模型
-model_path="/mnt/dolphinfs/hdd_pool/docker/user/hadoop-aipnlp/FMG/liuxinyu67/models/DeepSeek-R1-Distill-Qwen-1.5B"
+model_path="/tmp/hx/rrcot/lightthinker/output/lighthinker/checkpoint-1305"
 datasets="mmlu_cot gsm8k_cot gpqa_cot bbh_cot" 
 batch_size=16
-output_dir="./sglang_inference_results"
-extend_name="inf_cot_r1distillqwen1.5b"
+output_dir="/tmp/hx/rrcot/vanilla"
+extend_name="vanilla_inference"
 
 root_dir="./LightThinker"
 
