@@ -1,34 +1,40 @@
 
 ## zrs运行操作
-1. 在our_train_lighthinker_epl_mtp.sh中修改如下绝对路径
+1. 在our_train_lighthinker.sh、our_train_lighthinker_epl.sh、our_train_lighthinker_epl_,tp.sh、our_train_baseline.sh中修改如下绝对路径
 ```
-# ===== zrs模型保存路径 =======
-save_dir="/mnt/zhaorunsong/lx/rrcot_test"
-init_tag="lighthinker_epl"
-# ===== zrs模型保存路径 =======
+# ===== zrs项目根路径 =======
+root_dir="/zhaorunsong/RRcot"
+# ===== zrs项目根路径 =======
 ```
-
-2. 在our_inference_repe.sh中修改如下路径
+2. 在auto_training_inference_evaluate.sh的48行和56行修改成自己的conda位置
 ```
-# ======= zrs推理保存路径 =======
-model_tag="lighthinker_epl"
-model_short_tag="lighthinker_epl"
-ckpt=2
-output_path="/mnt/zhaorunsong/lx/rrcot_test"
-model_path="/mnt/zhaorunsong/lx/rrcot_test/output/lighthinker_epl/checkpoint-2"
-# ======= zrs推理保存路径 =======
+source /mnt/zhaorunsong/anaconda3/etc/profile.d/conda.sh
 ```
-
-3. 在auto_training_inference_evaluate.sh中修改如下
 ```
-output_path="在2中的our_inference_repe.sh复制过来"
-model_tag="在2中的our_inference_repe.sh复制过来"
-ckpt="在2中的our_inference_repe.sh复制过来"
+/*
+ *                                                     __----~~~~~~~~~~~------___
+ *                                    .  .   ~~//====......          __--~ ~~
+ *                    -.            \_|//     |||\\  ~~~~~~::::... /~
+ *                 ___-==_       _-~o~  \/    |||  \\            _/~~-
+ *         __---~~~.==~||\=_    -_--~/_-~|-   |\\   \\        _/~
+ *     _-~~     .=~    |  \\-_    '-~7  /-   /  ||    \      /
+ *   .~       .~       |   \\ -_    /  /-   /   ||      \   /
+ *  /  ____  /         |     \\ ~-_/  /|- _/   .||       \ /
+ *  |~~    ~~|--~~~~--_ \     ~==-/   | \~--===~~        .\
+ *           '         ~-|      /|    |-~\~~       __--~~
+ *                       |-~~-_/ |    |   ~\_   _-~            /\
+ *                            /  \     \__   \/~                \__
+ *                        _--~ _/ | .-~~____--~-/                  ~~==.
+ *                       ((->/~   '.|||' -_|    ~~-/ ,              . _||
+ *                                  -_     ~\      ~~---l__i__i__i--~~_/
+ *                                  _-~-__   ~)  \--______________--~~
+ *                                //.-~~~-~_--~- |-------~~~~~~~~
+ *                                       //.-~~~--\
+ *                       ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ * 
+ *                               神兽保佑            永无BUG
+ */
 ```
-
-4. 检查其他环境：如tokenizer_path、model_path等环境内容
-
-5. 运行bash auto_training_inference_evaluate.sh
 
 ## Table of Contents
 

@@ -52,8 +52,8 @@ from transformers.utils import (
 from transformers.models.qwen2.configuration_qwen2 import Qwen2Config
 
 
-if is_flash_attn_2_available():
-    from ...modeling_flash_attention_utils import _flash_attention_forward
+# if is_flash_attn_2_available():
+#     from ...modeling_flash_attention_utils import _flash_attention_forward
 
 
 logger = logging.get_logger(__name__)

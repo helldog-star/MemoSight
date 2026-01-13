@@ -3,8 +3,8 @@
 # conda activate lightthinker
 # which python
 
-# root_dir="/mnt/dolphinfs/hdd_pool/docker/user/hadoop-aipnlp/FMG/liuxinyu67/RRcot"
-# cd $root_dir
+root_dir="/zhaorunsong/RRcot"
+cd $root_dir
 
 
 # ========================= zrs保存模型路径 =============================
@@ -27,8 +27,8 @@ epochs=5   #change to 1 for test
 lr=2e-5
 save_steps=2
 deepspeed="$root_dir/configs/ds_z3_offload_config.json"
-micro_batch_size=8
-gradient_accumulation_steps=1
+micro_batch_size=4
+gradient_accumulation_steps=2
 warmup_ratio=0.05
 mode="aug-wo-pc"
 warmup_steps=0
