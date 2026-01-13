@@ -1,29 +1,39 @@
+# eval "$(/mnt/dolphinfs/hdd_pool/docker/user/hadoop-aipnlp/FMG/liuxinyu67/miniconda/bin/conda shell.bash hook)"
+# which conda
+# conda activate lightthinker
+# which python
+
+root_dir="/mnt/jinbo/RLRM/RRcot_2"
+cd $root_dir
+
+export PYTHONPATH=$PYTHONPATH:$(pwd)
+# ========================= zrs保存模型路径 =============================
+save_dir="/mnt/zhaorunsong/lx/rrcot_test/vanilla"
+# ========================= zrs保存模型路径 =============================
 # model 
 model_type="qwen"
-tokenizer_path="/mnt/jinbo/RLRM/model/Qwen/Qwen2.5-7B-Instruct" #0.5B
-model_path="/mnt/jinbo/RLRM/model/deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B" #1
+tokenizer_path="/mnt/zhaorunsong/models/Qwen2.5-0.5B"
+model_path="/mnt/zhaorunsong/models/Qwen2.5-0.5B" 
 bos_token="<|im_start|>"
 eos_token="<|im_end|>"
 conf_version="v1"
 
 # training
-max_length=4096
+max_length=256
 lr_scheduler_type="cosine"
 epochs=5   #change to 1 for test
-lr=1e-5   #vanilla 1e-5  anllm lightthinker 2e-5
+lr=1e-5
 save_steps=2
-deepspeed="./configs/ds_z3_offload_config.json"
-micro_batch_size=1
-gradient_accumulation_steps=4
+deepspeed="$root_dir/configs/ds_z3_offload_config.json"
+micro_batch_size=4
+gradient_accumulation_steps=2
 warmup_ratio=0.05
-#控制训练模式
-# mode="aug-wo-pc" 
 mode="normal"
 warmup_steps=0
 
 # others
-model_size="1.5b_model_7b_tokenzier_normal"
-init_tag=""
+init_tag="vanilla"
+model_size="7b"
 train_path="./data/train/train.jsonl"
 see_current="false"
 bi_directional="false"
@@ -66,12 +76,12 @@ echo "warmup_ratio=${warmup_ratio}"
 echo "warmup_steps=${warmup_steps}"
 echo "init_tag=${init_tag}"
 
-att_info="${model_size}-${model_type}-len_${max_length}-see_cur_${see_current}-bi_${bi_directional}-diag_${diagonal}-mode_${mode}"
-train_info="prefill_compress_${prefill_compress}-hybrid_${hybrid}-epoch_${epochs}-lr_${lr}-bsz_${micro_batch_size}-accumu_${gradient_accumulation_steps}-warm_r_${warmup_ratio}-warm_s_${warmup_steps}-freeze_model_${freeze_model}-train_input_${train_on_input}-qkv_${qkv}-ex_con_${exclude_continue}"
-output_dir="output/${init_tag}-${lr_scheduler_type}-${att_info}-${train_info}"
-compress_config="configs/LightThinker/${model_type}/${conf_version}.json"
+# att_info="${model_size}-${model_type}-len_${max_length}-see_cur_${see_current}-bi_${bi_directional}-diag_${diagonal}-mode_${mode}"
+# train_info="prefill_compress_${prefill_compress}-hybrid_${hybrid}-epoch_${epochs}-lr_${lr}-bsz_${micro_batch_size}-accumu_${gradient_accumulation_steps}-warm_r_${warmup_ratio}-warm_s_${warmup_steps}-freeze_model_${freeze_model}-train_input_${train_on_input}-qkv_${qkv}-ex_con_${exclude_continue}"
+output_dir="$save_dir/output/${init_tag}"
+compress_config="$root_dir/configs/LightThinker/${model_type}/${conf_version}.json"
 
-deepspeed --include loour_sglang_infer.shlhost:0,1,2,3 LightThinker/train.py \
+deepspeed --include localhost:0,1,2,3,4,5,6,7 LightThinker/train.py \
     --model_type $model_type \
     --model_path $model_path \
     --tokenizer_path $tokenizer_path \

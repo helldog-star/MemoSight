@@ -1800,7 +1800,7 @@ def main():
             tokenizer=tokenizer,
             reader=reader,
             comp_config=comp_config,
-            output_file=f"{args.output_tag}/{name}.jsonl",
+            output_file=f"{args.output_tag}/{name}/{args.index}_{name}.jsonl",
             # output_file=f"inference_results/{args.output_tag}/{name}_{args.model_tag}_{args.ckpt}.jsonl",
             max_new_tokens=args.max_new_tokens,
             repetition_penalty=args.repetition_penalty,

@@ -2,7 +2,7 @@
 
 # 默认参数
 DEFAULT_METHOD="anchor-thought"
-DEFAULT_TOKENIZER_PATH="/mnt/dolphinfs/hdd_pool/docker/user/hadoop-aipnlp/FMG/liuxinyu67/models/Qwen2.5-1.5B-Instruct"
+DEFAULT_TOKENIZER_PATH="/tmp/hx/Qwen/Qwen2.5-1.5B-Instruct"
 DEFAULT_COMP_CONFIG="configs/LightThinker/qwen/v1.json"
 DEFAULT_MODEL_TYPE="qwen"
 DEFAULT_DATASET="gsm8k"

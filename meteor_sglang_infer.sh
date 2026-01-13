@@ -12,11 +12,11 @@ export PYTHONPATH="$(pwd):${PYTHONPATH}"
 # datasets="mmlu gsm8k gpqa bbh"
 
 # 评测COT模型
-model_path="/tmp/hx/rrcot/vanilla/output/vanilla/checkpoint-1305"
+model_path="/mnt/zhaorunsong/lx/rrcot_test/vanilla/output/vanilla/checkpoint-2"
 datasets="mmlu gsm8k gpqa bbh" 
-batch_size=16
-output_dir="/tmp/hx/rrcot/vanilla"
-extend_name="vanilla/inference"
+batch_size=1
+output_dir="/mnt/zhaorunsong/lx/rrcot_test/vanilla"
+extend_name="vanilla"
 
 root_dir="./LightThinker"
 

@@ -1,19 +1,19 @@
-eval "$(/mnt/dolphinfs/hdd_pool/docker/user/hadoop-aipnlp/FMG/liuxinyu67/miniconda/bin/conda shell.bash hook)"
-which conda
-conda activate lightthinker
-which python
+# eval "$(/mnt/dolphinfs/hdd_pool/docker/user/hadoop-aipnlp/FMG/liuxinyu67/miniconda/bin/conda shell.bash hook)"
+# which conda
+# conda activate lightthinker
+# which python
 
-root_dir="/mnt/dolphinfs/hdd_pool/docker/user/hadoop-aipnlp/FMG/liuxinyu67/RRcot"
+root_dir="/zhaorunsong/RRcot"
 cd $root_dir
 
 export PYTHONPATH=$PYTHONPATH:$(pwd)
 # ========================= zrs保存模型路径 =============================
-save_dir="/mnt/zhaorunsong/lx/rrcot_test"
+save_dir="/tmp/hx/rrcot/lightthinker"
 # ========================= zrs保存模型路径 =============================
 # model 
 model_type="qwen"
-tokenizer_path="/mnt/dolphinfs/hdd_pool/docker/user/hadoop-aipnlp/FMG/liuxinyu67/models/Qwen2.5-1.5B-Instruct"
-model_path="/mnt/dolphinfs/hdd_pool/docker/user/hadoop-aipnlp/FMG/liuxinyu67/models/DeepSeek-R1-Distill-Qwen-1.5B" 
+tokenizer_path="/tmp/hx/Qwen/Qwen2.5-1.5B-Instruct"
+model_path="/tmp/hx/deepseek-ai/DeepSeek-R1-Distill-Qwen-7B" 
 bos_token="<|im_start|>"
 eos_token="<|im_end|>"
 conf_version="v1"
@@ -25,7 +25,7 @@ epochs=5   #change to 1 for test
 lr=2e-5
 save_steps=2
 deepspeed="$root_dir/configs/ds_z3_offload_config.json"
-micro_batch_size=8
+micro_batch_size=4
 gradient_accumulation_steps=2
 warmup_ratio=0.05
 mode="aug-wo-pc"
@@ -34,7 +34,7 @@ warmup_steps=0
 # others
 init_tag="lighthinker"
 model_size="7b"
-train_path="./data/train/train.jsonl"
+train_path="/home/zhaorunsong.zrs/repo/RRcot/data/train/train.jsonl"
 see_current="false"
 bi_directional="false"
 diagonal="false"
