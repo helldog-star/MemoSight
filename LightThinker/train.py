@@ -26,10 +26,10 @@ else:
 
 
 
-deepspeed.init_distributed(
-    dist_backend='nccl', 
-    timeout=timedelta(minutes=120) 
-)
+# deepspeed.init_distributed(
+#     dist_backend='nccl', 
+#     timeout=timedelta(minutes=120) 
+# )
 
 from config import Config
 from LightThinker.utils import _print, IGNORE_LABEL_ID, str2bool
@@ -55,44 +55,54 @@ class SaveTokenizerCallback(TrainerCallback):
             self.tokenizer.save_pretrained(checkpoint_folder)
 
 
+
+
 class MTPLossCallback(TrainerCallback):
-    """在日志记录时添加MTP相关的loss（支持梯度累积）"""
+    """在日志记录时添加MTP相关的loss（支持分布式训练）"""
     
     def __init__(self):
         self.lm_loss_sum = 0.0
         self.mtp_loss_sum = 0.0
-        # self.loss_count = 0
+        self.step_count = 0
     
-    # huggingface和deepspeed配合时，HF Trainer会把梯度平均的工作交给deepspeed
-    # 正常应该按照梯度累积做平均，但是这里与Trainer的总和对齐
-    # 实际loss为记录loss的 1/gradient_accumulation_steps
     def on_step_end(self, args, state, control, model=None, **kwargs):
         """每个训练步结束时累积loss"""
         if model is not None:
-            # 处理模型包装
-            if hasattr(model, 'module'):
-                model = model.module
+            # 处理模型包装（DeepSpeed / DDP）
+            actual_model = model
+            while hasattr(actual_model, 'module'):
+                actual_model = actual_model.module
             
-            # 累积loss
-            if hasattr(model, '_last_lm_loss'):
-                self.lm_loss_sum += model._last_lm_loss
-            if hasattr(model, '_last_mtp_loss'):
-                self.mtp_loss_sum += model._last_mtp_loss
-            # self.loss_count += 1
+            # 获取当前进程的loss
+            lm_loss = getattr(actual_model, '_last_lm_loss', 0.0)
+            mtp_loss = getattr(actual_model, '_last_mtp_loss', 0.0)
+            
+            # 分布式环境下同步loss（all-reduce取平均）
+            if dist.is_initialized():
+                lm_loss_tensor = torch.tensor(lm_loss, device=torch.cuda.current_device())
+                mtp_loss_tensor = torch.tensor(mtp_loss, device=torch.cuda.current_device())
+                
+                dist.all_reduce(lm_loss_tensor, op=dist.ReduceOp.SUM)
+                dist.all_reduce(mtp_loss_tensor, op=dist.ReduceOp.SUM)
+                
+                world_size = dist.get_world_size()
+                lm_loss = lm_loss_tensor.item() / world_size
+                mtp_loss = mtp_loss_tensor.item() / world_size
+            
+            self.lm_loss_sum += lm_loss
+            self.mtp_loss_sum += mtp_loss
+            self.step_count += 1
     
     def on_log(self, args, state, control, logs=None, **kwargs):
         """记录平均loss"""
-        if logs is not None:
-            # 计算平均值
-            # logs['lm_loss'] = self.lm_loss_sum / self.loss_count
-            # logs['mtp_loss'] = self.mtp_loss_sum / self.loss_count
-            logs['lm_loss'] = self.lm_loss_sum 
-            logs['mtp_loss'] = self.mtp_loss_sum 
+        if logs is not None and self.step_count > 0:
+            logs['lm_loss'] = self.lm_loss_sum / self.step_count
+            logs['mtp_loss'] = self.mtp_loss_sum / self.step_count
             
             # 重置累积器
             self.lm_loss_sum = 0.0
             self.mtp_loss_sum = 0.0
-            # self.loss_count = 0
+            self.step_count = 0
 
 
 def get_parser():
