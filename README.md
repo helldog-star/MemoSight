@@ -8,6 +8,8 @@ root_dir="/zhaorunsong/RRcot"
 ```
 2. 在auto_training_inference_evaluate.sh的48行和56行修改成自己的conda位置
 ```
+3. 运行 bash auto_training_inference_evaluate.sh
+
 source /mnt/zhaorunsong/anaconda3/etc/profile.d/conda.sh
 ```
 ```
