@@ -40,9 +40,9 @@
 # bash ./our_inference_epl_mtp_repe.sh
 # echo "=======🚀 lightthinker_EPL_MTP结束推理 ======="
 
-echo "=======🚀 vanilla开始训练 ======="
-bash ./our_train_baseline.sh
-echo "=======🚀 vanilla结束训练 ======="
+# echo "=======🚀 vanilla开始训练 ======="
+# bash ./our_train_baseline.sh
+# echo "=======🚀 vanilla结束训练 ======="
 
 
 source /mnt/zhaorunsong/anaconda3/etc/profile.d/conda.sh
