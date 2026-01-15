@@ -1348,7 +1348,7 @@ class Qwen2ForCausalLM(Qwen2PreTrainedModel, GenerationMixin):
             inputs_embeds=inputs_embeds,
             use_cache=use_cache,
             output_attentions=output_attentions,
-            output_hidden_states=output_hidden_states,
+            output_hidden_states=True,
             return_dict=return_dict,
             cache_position=cache_position,
             row_comp_index=row_comp_index,
