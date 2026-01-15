@@ -12,13 +12,13 @@ export PYTHONPATH=$PYTHONPATH:$(pwd)
 
 
 # ============================================== 修改评测模型换这里的配置就行 =========================================================
-model_tag="lighthinker_epl"
-model_short_tag="lighthinker_epl"
+model_tag="lightthinker_epl"
+model_short_tag="lightthinker_epl"
 repetition_penalty=1.1
 ckpt=1305
 output_path="/tmp/hx/rrcot/lightthinker_epl"
 output_tag="${output_path}/${model_tag}/inference"
-model_path="/tmp/hx/rrcot/lightthinker_epl/output/lighthinker_epl/checkpoint-1305"
+model_path="/tmp/hx/rrcot/lightthinker_epl/output/lightthinker_epl/checkpoint-1305"
 # ================================== zrs修改保存路径 ==========================================
 # ================================================================================================================================
 

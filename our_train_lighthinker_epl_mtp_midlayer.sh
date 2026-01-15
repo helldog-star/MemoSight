@@ -8,7 +8,7 @@ cd $root_dir
 
 
 # ========================= zrs保存模型路径 =============================
-save_dir="/tmp/hx/rrcot/lightthinker_epl_mtp"
+save_dir="/tmp/hx/rrcot/lightthinker_epl_mtp_midlayer"
 # ========================= zrs保存模型路径 =============================
 
 export PYTHONPATH=$PYTHONPATH:$(pwd)
@@ -34,7 +34,7 @@ mode="aug-wo-pc"
 warmup_steps=0
 
 # others
-init_tag="lightthinker_epl_mtp"
+init_tag="lightthinker_epl_mtp_midlayer"
 model_size="7b"
 train_path="/home/zhaorunsong.zrs/repo/RRcot/data/train/train.jsonl"
 see_current="false"

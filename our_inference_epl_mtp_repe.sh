@@ -12,8 +12,8 @@ export PYTHONPATH=$PYTHONPATH:$(pwd)
 
 
 # ============================================== 修改评测模型换这里的配置就行 =========================================================
-model_tag="lighthinker_epl_mtp"
-model_short_tag="lighthinker_epl_mtp"
+model_tag="lightthinker_epl_mtp"
+model_short_tag="lightthinker_epl_mtp"
 repetition_penalty=1.1
 ckpt=1305
 output_path="/tmp/hx/rrcot/lightthinker_epl_mtp"
