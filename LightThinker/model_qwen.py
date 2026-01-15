@@ -1373,7 +1373,7 @@ class Qwen2ForCausalLM(Qwen2PreTrainedModel, GenerationMixin):
                 mtp_lambda = getattr(self.config, "mtp_lambda", 1.0)
                 
                 total_mtp_loss = 0
-                current_hidden = hidden_states  # 主模型的hidden states
+                current_hidden = outputs.hidden_states[len(outputs.hidden_states) // 2]  # 主模型的hidden states
                 position_embeddings = self.model.rotary_emb(hidden_states, position_ids) # 计算
                 
                 # Main model: hidden(t) -> predict t+1 (labels[t])

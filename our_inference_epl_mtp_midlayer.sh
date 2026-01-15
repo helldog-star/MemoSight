@@ -12,13 +12,13 @@ export PYTHONPATH=$PYTHONPATH:$(pwd)
 
 
 # ============================================== 修改评测模型换这里的配置就行 =========================================================
-model_tag="lightthinker"
-model_short_tag="lightthinker"
+model_tag="lightthinker_epl_mtp_midlayer"
+model_short_tag="lightthinker_epl_mtp_midlayer"
 repetition_penalty=1.1
 ckpt=1305
-output_path="/tmp/hx/rrcot/lightthinker"
+output_path="/tmp/hx/rrcot/lightthinker_epl_mtp_midlayer"
 output_tag="${output_path}/${model_tag}/inference"
-model_path="/tmp/hx/rrcot/lightthinker/output/lightthinker/checkpoint-1305"
+model_path="/tmp/hx/rrcot/lightthinker_epl_mtp_midlayer/output/lightthinker_epl_mtp_midlayer/checkpoint-1305"
 # ================================== zrs修改保存路径 ==========================================
 # ================================================================================================================================
 
@@ -110,7 +110,7 @@ do
             --compress_prompt $compress_prompt \
             --update_attention_method $update_attention_method \
             --split_size $split_size \
-            --use_EPL False \
+            --use_EPL True \
             --model_path $model_path \
             --index $real_index > "${output_path}/ours_infer_log/${rolling_rope}_${compress_prompt}/${real_index}${prefix}_${model_short_tag}_${ckpt}.txt" 2>&1 &
         

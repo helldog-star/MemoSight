@@ -32,7 +32,7 @@ mode="aug-wo-pc"
 warmup_steps=0
 
 # others
-init_tag="lighthinker"
+init_tag="lightthinker"
 model_size="7b"
 train_path="/home/zhaorunsong.zrs/repo/RRcot/data/train/train.jsonl"
 see_current="false"
