@@ -1469,9 +1469,6 @@ class Qwen2ForCausalLM(Qwen2PreTrainedModel, GenerationMixin):
         num_logits_to_keep: int = 0,
         row_comp_index: Optional[torch.Tensor]=None,
         column_comp_index: Optional[torch.Tensor]=None,
-        compress_states: Optional[torch.Tensor] = None,  # (batch, compress_len, hidden_dim) - compress token的hidden states
-        compress_position_ids: Optional[torch.LongTensor] = None,  # Position IDs for compress tokens
-        cot_token_mask: Optional[torch.Tensor] = None,  # (batch, seq_len) - True for cot tokens
         **loss_kwargs,
     ) -> Union[Tuple, CausalLMOutputWithPast]:
         r"""
@@ -1560,6 +1557,7 @@ class Qwen2ForCausalLM(Qwen2PreTrainedModel, GenerationMixin):
                 if self.mtp_model == "cross-attention":
                     # 准备compress states和cross-attention相关参数
                     mtp_compress_states = current_hidden[row_comp_index, column_comp_index]
+                    mtp_compress_position_ids = position_ids[row_comp_index, column_comp_index]
                     mtp_compress_position_embeddings = position_embeddings[row_comp_index, column_comp_index]
                     mtp_cross_attention_mask = None
                     mtp_cot_token_mask = None
@@ -1624,37 +1622,51 @@ class Qwen2ForCausalLM(Qwen2PreTrainedModel, GenerationMixin):
                         position_embeddings[1][:, :curr_len, :]
                     ) if position_embeddings is not None else None
                     
-                    # # 准备compress states和cross-attention相关参数
-                    # mtp_compress_states = None
-                    # mtp_compress_position_embeddings = None
-                    # mtp_cross_attention_mask = None
-                    # mtp_cot_token_mask = None
                     
-                    if compress_states is not None:
-                        # 使用提供的compress states
-                        mtp_compress_states = compress_states
+                    if mtp_compress_states is not None:
                         
                         # 准备compress token的position embeddings
-                        if compress_position_ids is not None:
+                        if mtp_compress_position_embeddings is None:
                             mtp_compress_position_embeddings = self.model.rotary_emb(
-                                compress_states, compress_position_ids
+                                mtp_compress_states, mtp_compress_position_ids
                             )
                         
-                        # 创建cross-attention mask: 允许当前序列的所有位置关注compress tokens
+                        # 创建cross-attention mask: 每个token只能看到当前token前面的所有压缩token
                         # shape: (batch, 1, curr_len, compress_len)
                         batch_size = curr_hidden_input.size(0)
-                        compress_len = compress_states.size(1)
-                        # 允许所有位置关注所有compress tokens
-                        mtp_cross_attention_mask = torch.zeros(
+                        compress_len = mtp_compress_states.size(1)
+                        
+                        # 初始化mask为负无穷（mask掉所有位置）
+                        min_dtype = torch.finfo(curr_hidden_input.dtype).min
+                        mtp_cross_attention_mask = torch.full(
                             (batch_size, 1, curr_len, compress_len),
+                            fill_value=min_dtype,
                             device=curr_hidden_input.device,
                             dtype=curr_hidden_input.dtype
                         )
+                        
+                        # 如果提供了position_ids，根据位置关系设置mask
+                        if mtp_position_ids is not None and mtp_compress_position_ids is not None:
+                            # mtp_position_ids: (batch, curr_len)
+                            # compress_position_ids: (batch, compress_len)
+                            # 使用广播创建比较矩阵: (batch, curr_len, compress_len)
+                            # curr_positions[:, :, None] >= compress_positions[:, None, :]
+                            # 表示当前序列位置 >= 压缩token位置，允许关注
+                            curr_positions = mtp_position_ids.unsqueeze(-1)  # (batch, curr_len, 1)
+                            compress_positions = mtp_compress_position_ids.unsqueeze(1)  # (batch, 1, compress_len)
+                            can_attend = curr_positions >= compress_positions  # (batch, curr_len, compress_len)
+                            
+                            # 将允许的位置设置为0，不允许的位置保持min_dtype
+                            mtp_cross_attention_mask = torch.where(
+                                can_attend.unsqueeze(1),  # (batch, 1, curr_len, compress_len)
+                                torch.zeros_like(mtp_cross_attention_mask),
+                                mtp_cross_attention_mask
+                            )
                     
                     # 准备cot token mask
-                    if cot_token_mask is not None:
+                    if mtp_cot_token_mask is not None:
                         # 截断到当前长度
-                        mtp_cot_token_mask = cot_token_mask[:, :curr_len]
+                        mtp_cot_token_mask = mtp_cot_token_mask[:, :curr_len]
                     
                     # 4. MTP模块前向传播
                     mtp_hidden = mtp_module(
@@ -1665,7 +1677,7 @@ class Qwen2ForCausalLM(Qwen2PreTrainedModel, GenerationMixin):
                         cross_attention_mask=mtp_cross_attention_mask,
                         position_ids=mtp_position_ids,
                         position_embeddings=mtp_position_embeddings,
-                        compress_position_ids=compress_position_ids,
+                        compress_position_ids=mtp_compress_position_ids,
                         compress_position_embeddings=mtp_compress_position_embeddings,
                         use_cache=False,
                         output_attentions=False,
