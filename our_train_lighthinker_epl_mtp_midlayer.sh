@@ -83,7 +83,7 @@ echo "init_tag=${init_tag}"
 
 output_dir="$save_dir/output/${init_tag}"
 compress_config="$root_dir/configs/LightThinker/${model_type}/${conf_version}.json"
-aux_config="$root_dir/configs/mtp_aux_config.json"
+aux_config="$root_dir/configs/mtp_aux_midlayer_config.json"
 
 deepspeed --include localhost:0,1,2,3,4,5,6,7 LightThinker/train.py \
     --model_type $model_type \

@@ -353,7 +353,7 @@ def main():
     )
     # 在加载检查点时使用上下文管理器
     if resume_from_checkpoint:
-           trainer.train(resume_from_checkpoint=resume_from_checkpoint)
+        trainer.train(resume_from_checkpoint=resume_from_checkpoint)
     else:
         trainer.train()
     
