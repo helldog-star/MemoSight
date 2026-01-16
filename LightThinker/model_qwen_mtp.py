@@ -1137,180 +1137,58 @@ class Qwen2Model(Qwen2PreTrainedModel):
                 )
         return causal_mask
 
-class Qwen2CrossAttention(nn.Module):
-    """
-    Cross-attention module for MTP to attend to compress tokens.
-    Query comes from current sequence, Key/Value come from compress tokens.
-    """
-    def __init__(self, config: Qwen2Config, layer_idx: Optional[int] = None):
-        super().__init__()
-        self.config = config
-        self.layer_idx = layer_idx
-        self.hidden_size = config.hidden_size
-        self.num_heads = config.num_attention_heads
-        self.head_dim = self.hidden_size // self.num_heads
-        self.num_key_value_heads = config.num_key_value_heads
-        self.num_key_value_groups = self.num_heads // self.num_key_value_heads
-        self.attention_dropout = config.attention_dropout
-
-        if (self.head_dim * self.num_heads) != self.hidden_size:
-            raise ValueError(
-                f"hidden_size must be divisible by num_heads (got `hidden_size`: {self.hidden_size}"
-                f" and `num_heads`: {self.num_heads})."
-            )
-        
-        # Query projection: from current sequence
-        self.q_proj = nn.Linear(self.hidden_size, self.num_heads * self.head_dim, bias=True)
-        # Key/Value projections: from compress tokens
-        self.k_proj = nn.Linear(self.hidden_size, self.num_key_value_heads * self.head_dim, bias=True)
-        self.v_proj = nn.Linear(self.hidden_size, self.num_key_value_heads * self.head_dim, bias=True)
-        self.o_proj = nn.Linear(self.num_heads * self.head_dim, self.hidden_size, bias=False)
-
-    def forward(
-        self,
-        hidden_states: torch.Tensor,  # Query: current sequence (batch, q_len, hidden_dim)
-        compress_states: torch.Tensor,  # Key/Value: compress tokens (batch, compress_len, hidden_dim)
-        attention_mask: Optional[torch.Tensor] = None,  # (batch, 1, q_len, compress_len)
-        position_embeddings: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
-        compress_position_embeddings: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
-        output_attentions: bool = False,
-    ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
-        """
-        Args:
-            hidden_states: Query states from current sequence
-            compress_states: Key/Value states from compress tokens
-            attention_mask: Attention mask for cross-attention
-            position_embeddings: RoPE embeddings for query
-            compress_position_embeddings: RoPE embeddings for key/value
-        """
-        bsz, q_len, _ = hidden_states.size()
-        _, compress_len, _ = compress_states.size()
-
-        # Project to Q, K, V
-        query_states = self.q_proj(hidden_states)
-        key_states = self.k_proj(compress_states)
-        value_states = self.v_proj(compress_states)
-
-        # Reshape for multi-head attention
-        query_states = query_states.view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
-        key_states = key_states.view(bsz, compress_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
-        value_states = value_states.view(bsz, compress_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
-
-        # Apply RoPE to query and key if provided
-        if position_embeddings is not None:
-            cos_q, sin_q = position_embeddings
-            query_states, _ = apply_rotary_pos_emb(query_states, None, cos_q, sin_q)
-        
-        if compress_position_embeddings is not None:
-            cos_k, sin_k = compress_position_embeddings
-            _, key_states = apply_rotary_pos_emb(None, key_states, cos_k, sin_k)
-
-        # Repeat k/v heads if n_kv_heads < n_heads
-        key_states = repeat_kv(key_states, self.num_key_value_groups)
-        value_states = repeat_kv(value_states, self.num_key_value_groups)
-
-        # Compute attention
-        attn_weights = torch.matmul(query_states, key_states.transpose(2, 3)) / math.sqrt(self.head_dim)
-        
-        if attention_mask is not None:
-            # attention_mask shape: (batch, 1, q_len, compress_len)
-            attn_weights = attn_weights + attention_mask
-
-        # Softmax and dropout
-        attn_weights = nn.functional.softmax(attn_weights, dim=-1, dtype=torch.float32).to(query_states.dtype)
-        attn_weights = nn.functional.dropout(attn_weights, p=self.attention_dropout, training=self.training)
-        attn_output = torch.matmul(attn_weights, value_states)
-
-        # Reshape and project output
-        attn_output = attn_output.transpose(1, 2).contiguous()
-        attn_output = attn_output.reshape(bsz, q_len, self.hidden_size)
-        attn_output = self.o_proj(attn_output)
-
-        if not output_attentions:
-            attn_weights = None
-
-        return attn_output, attn_weights
-
-
 class Qwen2MTPModule(nn.Module):
     """
-    MTP Module with standard Transformer decoder structure:
-    Self-Attention + Cross-Attention (to compress tokens) + MLP
-    
-    input: [hidden_prev, target_embeds, compress_states]
+    input: [hidden_prev, target_embeds]
     output: 预测下一个token的hidden states
     """
-    def __init__(self, config, layer_idx, is_first_mtp_layer=False):
+    def __init__(self, config, layer_idx, no_prev_norm=False):
         super().__init__()
         self.config = config
         self.hidden_size = config.hidden_size
-        self.is_first_mtp_layer = is_first_mtp_layer
+        self.no_prev_norm = no_prev_norm
 
-        if not is_first_mtp_layer:
+        if not no_prev_norm:
             self.norm_prev = Qwen2RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
         
         self.norm_target = Qwen2RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
 
-        # Projection to combine hidden_prev and target_embeds
         self.projection = nn.Linear(
             config.hidden_size * 2, 
             config.hidden_size, 
             bias=False
         )
         
-        # Self-attention layer
-        self.self_attn = QWEN2_ATTENTION_CLASSES[config._attn_implementation](config, layer_idx)
-        self.input_layernorm = Qwen2RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
-        
-        # Cross-attention layer to attend to compress tokens
-        self.cross_attn = Qwen2CrossAttention(config, layer_idx)
-        self.post_attention_layernorm = Qwen2RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
-        
-        # MLP layer
-        self.mlp = Qwen2MLP(config)
-        self.post_mlp_layernorm = Qwen2RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
+        self.layer = Qwen2DecoderLayer(config, layer_idx)
     
     def forward(
         self, 
-        hidden_prev,           # (batch, seq_len, hidden_dim) - 主模型或上一个MTP的输出
-        target_embeds,         # (batch, seq_len, hidden_dim) - 目标token的embedding
-        compress_states=None,  # (batch, compress_len, hidden_dim) - compress token的hidden states
-        attention_mask=None,   # Self-attention mask
-        cross_attention_mask=None,  # Cross-attention mask
+        hidden_prev,           
+        target_embeds,         
+        attention_mask=None,   
         position_ids=None,     
         position_embeddings=None, 
-        compress_position_ids=None,  # Position IDs for compress tokens
-        compress_position_embeddings=None,  # Position embeddings for compress tokens
         past_key_value=None,  
         use_cache=False,      
         output_attentions=False,
         cache_position=None,
-        cot_token_mask=None,  # Boolean mask: True for cot tokens (should detach gradient)
         **kwargs
     ):
         """
         Args:
             hidden_prev: (batch, seq_len, hidden_dim) - 主模型或上一个MTP的输出
             target_embeds: (batch, seq_len, hidden_dim) - 目标token的embedding
-            compress_states: (batch, compress_len, hidden_dim) - compress token的hidden states
-            attention_mask: Self-attention mask
-            cross_attention_mask: Cross-attention mask (batch, 1, seq_len, compress_len)
-            position_ids: Position indices for current sequence
-            position_embeddings: (cos, sin) for RoPE of current sequence
-            compress_position_ids: Position indices for compress tokens
-            compress_position_embeddings: (cos, sin) for RoPE of compress tokens
-            cot_token_mask: (batch, seq_len) - True for cot tokens, False for others
-                           Used to detach gradients from cot tokens
+            attention_mask: attention mask
+            position_ids: position indices
+            position_embeddings: (cos, sin) for RoPE
         
         Returns:
             hidden_states: (batch, seq_len, hidden_dim) - 用于预测下一个token
         """
-        # 归一化hidden_prev（第一层跳过，后续层需要）
-        if self.is_first_mtp_layer:
-            # 第一层：hidden_prev来自主模型，已经通过model.norm归一化
+        # 归一化hidden_prev
+        if self.no_prev_norm:
             hidden_prev_norm = hidden_prev
         else:
-            # 后续层：hidden_prev来自上一个MTP层，需要归一化
             hidden_prev_norm = self.norm_prev(hidden_prev)
         
         # 归一化目标embedding
@@ -1322,12 +1200,8 @@ class Qwen2MTPModule(nn.Module):
         # Shape: (batch, seq_len, hidden_dim)
         projected_states = self.projection(concat_input)
         
-        # ========== Self-Attention ==========
-        residual = projected_states
-        hidden_states = self.input_layernorm(projected_states)
-        
-        self_attn_outputs = self.self_attn(
-            hidden_states=hidden_states,
+        layer_outputs = self.layer(
+            hidden_states=projected_states,
             attention_mask=attention_mask,
             position_ids=position_ids,
             position_embeddings=position_embeddings,
@@ -1339,50 +1213,8 @@ class Qwen2MTPModule(nn.Module):
             column_comp_index=None,
             **kwargs
         )
-        hidden_states = residual + self_attn_outputs[0]
         
-        # ========== Cross-Attention to Compress Tokens ==========
-        if compress_states is not None:
-            residual = hidden_states
-            hidden_states = self.post_attention_layernorm(hidden_states)
-            
-            cross_attn_output, cross_attn_weights = self.cross_attn(
-                hidden_states=hidden_states,
-                compress_states=compress_states,
-                attention_mask=cross_attention_mask,
-                position_embeddings=position_embeddings,
-                compress_position_embeddings=compress_position_embeddings,
-                output_attentions=output_attentions,
-            )
-            hidden_states = residual + cross_attn_output
-        else:
-            # If no compress states provided, skip cross-attention
-            hidden_states = self.post_attention_layernorm(hidden_states)
-        
-        # ========== MLP ==========
-        residual = hidden_states
-        hidden_states = self.post_mlp_layernorm(hidden_states)
-        hidden_states = self.mlp(hidden_states)
-        hidden_states = residual + hidden_states
-        
-        # ========== Gradient Detaching for COT Tokens ==========
-        # 截断cot token的梯度，因为推理时只保留compress token
-        # 这样可以让信息尽可能更新到compress token中，而不是cot token
-        if cot_token_mask is not None and hidden_states.requires_grad:
-            # cot_token_mask: (batch, seq_len), True表示cot token
-            # 对于cot token位置，我们需要截断梯度，阻止梯度流回这些位置
-            cot_mask_expanded = cot_token_mask.unsqueeze(-1)  # (batch, seq_len, 1)
-            
-            # 方法：对于cot token位置，使用detach后的值
-            # 这样cot token位置不会接收梯度，但可以参与前向传播
-            hidden_states_detached = hidden_states.detach()
-            hidden_states = torch.where(
-                cot_mask_expanded,
-                hidden_states_detached,  # cot token位置：使用detach的值，不接收梯度
-                hidden_states            # 其他位置：保持原值，正常接收梯度
-            )
-        
-        return hidden_states
+        return layer_outputs[0]
 
 
 class Qwen2ForCausalLM(Qwen2PreTrainedModel, GenerationMixin):
@@ -1395,13 +1227,17 @@ class Qwen2ForCausalLM(Qwen2PreTrainedModel, GenerationMixin):
         self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
 
         self.mtp_depth = getattr(config, "mtp_depth", 0)
-        self.token_contribution = getattr(config, "token_contribution", 1)
+        self.Expectation = getattr(config, "Expectation", False)
+        self.mtp_module_work_layer = getattr(config, "mtp_module_work_layer", -1)
+        self.mtp_mode = getattr(config, "mtp_mode", "normal")
+        self.mtp_lambda = getattr(config, "mtp_lambda", 1.0)
+
         if self.mtp_depth > 0:
             self.mtp_modules = nn.ModuleList([
                     Qwen2MTPModule(
                         config, 
                         layer_idx=config.num_hidden_layers+i,
-                        is_first_mtp_layer=(i==0)  # 第一个MTP层标记为True
+                        no_prev_norm=(self.mtp_module_work_layer==-1 and i==0)  # mtp作用在最后一个hidden时，第一层不需要norm
                     ) 
                     for i in range(self.mtp_depth)
                 ])
@@ -1466,9 +1302,6 @@ class Qwen2ForCausalLM(Qwen2PreTrainedModel, GenerationMixin):
         num_logits_to_keep: int = 0,
         row_comp_index: Optional[torch.Tensor]=None,
         column_comp_index: Optional[torch.Tensor]=None,
-        compress_states: Optional[torch.Tensor] = None,  # (batch, compress_len, hidden_dim) - compress token的hidden states
-        compress_position_ids: Optional[torch.LongTensor] = None,  # Position IDs for compress tokens
-        cot_token_mask: Optional[torch.Tensor] = None,  # (batch, seq_len) - True for cot tokens
         **loss_kwargs,
     ) -> Union[Tuple, CausalLMOutputWithPast]:
         r"""
@@ -1538,11 +1371,13 @@ class Qwen2ForCausalLM(Qwen2PreTrainedModel, GenerationMixin):
 
             # MTP aux loss
             if self.mtp_depth > 0:
-                # MTP权重系数
-                mtp_lambda = getattr(self.config, "mtp_lambda", 1.0)
                 
                 total_mtp_loss = 0
-                current_hidden = outputs.hidden_states[len(outputs.hidden_states) // 2]  # 主模型的hidden states
+                if self.mtp_module_work_layer == -1:
+                    current_hidden = outputs.hidden_states[-1]
+                else:
+                    current_hidden = outputs.hidden_states[self.mtp_module_work_layer]
+
                 position_embeddings = self.model.rotary_emb(hidden_states, position_ids) # 计算
                 
                 # Main model: hidden(t) -> predict t+1 (labels[t])
@@ -1605,52 +1440,15 @@ class Qwen2ForCausalLM(Qwen2PreTrainedModel, GenerationMixin):
                         position_embeddings[1][:, :curr_len, :]
                     ) if position_embeddings is not None else None
                     
-                    # 准备compress states和cross-attention相关参数
-                    mtp_compress_states = None
-                    mtp_compress_position_embeddings = None
-                    mtp_cross_attention_mask = None
-                    mtp_cot_token_mask = None
-                    
-                    if compress_states is not None:
-                        # 使用提供的compress states
-                        mtp_compress_states = compress_states
-                        
-                        # 准备compress token的position embeddings
-                        if compress_position_ids is not None:
-                            mtp_compress_position_embeddings = self.model.rotary_emb(
-                                compress_states, compress_position_ids
-                            )
-                        
-                        # 创建cross-attention mask: 允许当前序列的所有位置关注compress tokens
-                        # shape: (batch, 1, curr_len, compress_len)
-                        batch_size = curr_hidden_input.size(0)
-                        compress_len = compress_states.size(1)
-                        # 允许所有位置关注所有compress tokens
-                        mtp_cross_attention_mask = torch.zeros(
-                            (batch_size, 1, curr_len, compress_len),
-                            device=curr_hidden_input.device,
-                            dtype=curr_hidden_input.dtype
-                        )
-                    
-                    # 准备cot token mask
-                    if cot_token_mask is not None:
-                        # 截断到当前长度
-                        mtp_cot_token_mask = cot_token_mask[:, :curr_len]
-                    
                     # 4. MTP模块前向传播
                     mtp_hidden = mtp_module(
                         hidden_prev=curr_hidden_input,        
                         target_embeds=next_token_embeds,    
-                        compress_states=mtp_compress_states,
                         attention_mask=mtp_attention_mask,
-                        cross_attention_mask=mtp_cross_attention_mask,
                         position_ids=mtp_position_ids,
                         position_embeddings=mtp_position_embeddings,
-                        compress_position_ids=compress_position_ids,
-                        compress_position_embeddings=mtp_compress_position_embeddings,
                         use_cache=False,
                         output_attentions=False,
-                        cot_token_mask=mtp_cot_token_mask,
                     )
 
                     # 5. 计算logits和loss
@@ -1665,7 +1463,10 @@ class Qwen2ForCausalLM(Qwen2PreTrainedModel, GenerationMixin):
                 
                 # 7. 将MTP loss加到总loss中
                 if total_mtp_loss > 0:
-                    mtp_loss = mtp_lambda * total_mtp_loss / self.token_contribution
+                    if self.Expectation:
+                        mtp_loss = self.mtp_lambda * total_mtp_loss / self.mtp_depth
+                    else:
+                        mtp_loss = self.mtp_lambda * total_mtp_loss
                     loss = lm_loss + mtp_loss
                     
                     self._last_mtp_loss = mtp_loss.detach().item()

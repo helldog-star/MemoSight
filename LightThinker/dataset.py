@@ -700,16 +700,13 @@ class MyDataCollator:
             final['labels'].append(new_item['labels'])
             final['position_ids'].append(new_item['position_ids'])
             # row and column
-            temp_column_list = list()
-            temp_row_list = list()
             for item in aug_data['tokenized']['locate_index']:
                 start, end, l_inst, n_comp, n_continue = item
-                temp_column_list.extend(
+                # 直接添加，避免重复累积
+                final['column_comp_index'].extend(
                     [end+l_inst+i for i in range(n_comp)]
                 )
-                temp_row_list.extend([bsz_id] * n_comp)
-                final['row_comp_index'].extend(temp_row_list)
-                final['column_comp_index'].extend(temp_column_list)
+                final['row_comp_index'].extend([bsz_id] * n_comp)
         
         return dict(
             input_ids=torch.as_tensor(
@@ -826,16 +823,13 @@ class MyDataCollator:
                 final['labels'].append(new_item['labels'])
                 final['position_ids'].append(new_item['position_ids'])
 
-            temp_column_list = list()
-            temp_row_list = list()
             for item in aug_data['tokenized']['locate_index']:
                 start, end, l_inst, n_comp, n_continue = item
-                temp_column_list.extend(
+                # 直接添加，避免重复累积
+                final['column_comp_index'].extend(
                     [end+l_inst+i for i in range(n_comp)]
                 )
-                temp_row_list.extend([bsz_id] * n_comp)
-                final['row_comp_index'].extend(temp_row_list)
-                final['column_comp_index'].extend(temp_column_list)
+                final['row_comp_index'].extend([bsz_id] * n_comp)
 
         return dict(
             input_ids=torch.as_tensor(
@@ -903,16 +897,13 @@ class MyDataCollator:
             final['labels'].append(new_item['labels'])
             final['position_ids'].append(new_item['position_ids'])
             # row and column
-            temp_column_list = list()
-            temp_row_list = list()
             for item in recover_prompt_data['tokenized']['locate_index']:
                 start, end, l_inst, n_comp, n_continue = item
-                temp_column_list.extend(
+                # 直接添加，避免重复累积
+                final['column_comp_index'].extend(
                     [end+l_inst+i for i in range(n_comp)]
                 )
-                temp_row_list.extend([bsz_id] * n_comp)
-                final['row_comp_index'].extend(temp_row_list)
-                final['column_comp_index'].extend(temp_column_list)
+                final['row_comp_index'].extend([bsz_id] * n_comp)
         
         return dict(
             input_ids=torch.as_tensor(
@@ -974,17 +965,13 @@ class MyDataCollator:
             final['labels'].append(new_item['labels'])
             final['position_ids'].append(new_item['position_ids'])
             # row and column
-            temp_column_list = list() # 压缩token在序列中的位置
-            temp_row_list = list() # 压缩token所属的batch索引
             for item in aug_data['tokenized']['locate_index']:
                 start, end, l_inst, n_comp, n_continue = item
-                temp_column_list.extend(
+                # 直接添加，避免重复累积
+                final['column_comp_index'].extend(
                     [end+l_inst+i for i in range(n_comp)]
                 )
-                temp_row_list.extend([bsz_id] * n_comp)
-                final['row_comp_index'].extend(temp_row_list)
-                final['column_comp_index'].extend(temp_column_list)
-                temp_column_list = list()
+                final['row_comp_index'].extend([bsz_id] * n_comp)
         
         return dict(
             input_ids=torch.as_tensor(
