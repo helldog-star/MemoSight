@@ -12,6 +12,8 @@ from transformers import Trainer, TrainingArguments
 import deepspeed
 import torch.distributed as dist
 from datetime import timedelta  # 引入时间库
+from transformers import TrainerCallback
+from transformers.integrations import TensorBoardCallback
 
 
 # ===== 关键：在任何其他操作前绑定GPU设备 =====
@@ -57,51 +59,99 @@ class SaveTokenizerCallback(TrainerCallback):
 
 
 
-class MTPLossCallback(TrainerCallback):
-    """在日志记录时添加MTP相关的loss（支持分布式训练）"""
-    
+# ==========================================
+# 1. 定义外部存储容器 (用于暂存 Hook 抓取的数据)
+# ==========================================
+class LossBuffer:
     def __init__(self):
-        self.lm_loss_sum = 0.0
-        self.mtp_loss_sum = 0.0
+        self.history = []
+    
+    def clear(self):
+        self.history = []
+
+# 实例化全局 Buffer
+loss_buffer = LossBuffer()
+
+# ==========================================
+# 2. 定义 Hook 函数 (用于从模型 forward 中偷数据)
+# ==========================================
+def capture_loss_hook(module, input, output):
+    """
+    修复版 Hook：自动处理 Tensor 和 float 类型不一致的问题
+    """
+    # 1. 获取属性，如果不存在则默认为 0.0
+    raw_lm = getattr(module, '_last_lm_loss', 0.0)
+    raw_mtp = getattr(module, '_last_mtp_loss', 0.0)
+    
+    # 2. 定义一个辅助逻辑：确保输出统一为 Tensor
+    # 这样 Callback 里的 .item() 才能正常工作
+    def safe_detach(val):
+        if isinstance(val, torch.Tensor):
+            return val.detach().cpu() # 移到 CPU 以节省显存
+        else:
+            return torch.tensor(float(val)) # 如果是 float，这就包装成 Tensor
+            
+    # 3. 存入 buffer
+    loss_buffer.history.append({
+        "lm": safe_detach(raw_lm),
+        "mtp": safe_detach(raw_mtp)
+    })
+
+# ==========================================
+# 3. 定义 Callback (用于汇总计算并写入 Log)
+# ==========================================
+class MTPLossCallback(TrainerCallback):
+    def __init__(self, buffer_instance):
+        self.buffer = buffer_instance
+        self.local_stats = {"lm": 0.0, "mtp": 0.0}
         self.step_count = 0
-    
-    def on_step_end(self, args, state, control, model=None, **kwargs):
-        """每个训练步结束时累积loss"""
-        if model is not None:
-            # 处理模型包装（DeepSpeed / DDP）
-            actual_model = model
-            while hasattr(actual_model, 'module'):
-                actual_model = actual_model.module
-            
-            # 获取当前进程的loss
-            lm_loss = getattr(actual_model, '_last_lm_loss', 0.0)
-            mtp_loss = getattr(actual_model, '_last_mtp_loss', 0.0)
-            
-            # 分布式环境下同步loss（all-reduce取平均）
-            if dist.is_initialized():
-                lm_loss_tensor = torch.tensor(lm_loss, device=torch.cuda.current_device())
-                mtp_loss_tensor = torch.tensor(mtp_loss, device=torch.cuda.current_device())
-                
-                dist.all_reduce(lm_loss_tensor, op=dist.ReduceOp.SUM)
-                dist.all_reduce(mtp_loss_tensor, op=dist.ReduceOp.SUM)
-                
-                world_size = dist.get_world_size()
-                lm_loss = lm_loss_tensor.item() / world_size
-                mtp_loss = mtp_loss_tensor.item() / world_size
-            
-            self.lm_loss_sum += lm_loss
-            self.mtp_loss_sum += mtp_loss
-            self.step_count += 1
-    
+
+    def on_step_end(self, args, state, control, **kwargs):
+        # 从外部 buffer 读取数据
+        history = self.buffer.history
+        
+        if not history:
+            return
+
+        # 计算当前 Step 的 Sum Loss
+        local_step_lm_sum = sum(item["lm"].item() for item in history)
+        local_step_mtp_sum = sum(item["mtp"].item() for item in history)
+        
+        self.local_stats["lm"] += local_step_lm_sum
+        self.local_stats["mtp"] += local_step_mtp_sum
+        self.step_count += 1
+        
+        # 【关键】清空 Buffer，防止内存溢出和数据混淆
+        self.buffer.clear()
+
     def on_log(self, args, state, control, logs=None, **kwargs):
-        """记录平均loss"""
         if logs is not None and self.step_count > 0:
-            logs['lm_loss'] = self.lm_loss_sum / self.step_count
-            logs['mtp_loss'] = self.mtp_loss_sum / self.step_count
+            # 计算本地平均值
+            local_avg_lm = self.local_stats["lm"] / self.step_count
+            local_avg_mtp = self.local_stats["mtp"] / self.step_count
             
-            # 重置累积器
-            self.lm_loss_sum = 0.0
-            self.mtp_loss_sum = 0.0
+            # === DeepSpeed 多卡同步核心逻辑 ===
+            if dist.is_initialized():
+                # 放在 Tensor 中以便在 GPU 间传输
+                metrics = torch.tensor([local_avg_lm, local_avg_mtp], device=args.device)
+                
+                # 所有显卡的数据相加 (ReduceOp.SUM)
+                dist.all_reduce(metrics, op=dist.ReduceOp.SUM)
+                
+                # 除以显卡数量，得到全局平均
+                world_size = dist.get_world_size()
+                global_avg_lm = (metrics[0] / world_size).item()
+                global_avg_mtp = (metrics[1] / world_size).item()
+            else:
+                global_avg_lm = local_avg_lm
+                global_avg_mtp = local_avg_mtp
+
+            # 写入 Log (Trainer 会自动发送给 TensorBoard)
+            logs['lm_loss'] = round(global_avg_lm, 4)
+            logs['mtp_loss'] = round(global_avg_mtp, 4)
+            
+            # 重置计数器
+            self.local_stats = {"lm": 0.0, "mtp": 0.0}
             self.step_count = 0
 
 
@@ -192,6 +242,9 @@ def get_model_and_tokenizer(
         model = model_class.from_pretrained(
             args.model_path, torch_dtype=torch.bfloat16
         )
+    
+    # 1. 挂载钩子 (核心步骤)
+    hook_handle = model.register_forward_hook(capture_loss_hook)
 
     model.add_qkv(
         q='q' in args.qkv,
@@ -234,7 +287,7 @@ def get_model_and_tokenizer(
     for param_name in trainable_params:
         print(param_name)
 
-    return model, tokenizer
+    return model, tokenizer,hook_handle
 
 def get_dataset_and_data_collator(
     args,
@@ -290,7 +343,7 @@ def main():
             print(f"发现检查点，将从 {resume_from_checkpoint} 恢复训练")
 
     comp_config = Config.from_file(config_path=args.compress_config)
-    model, tokenizer = get_model_and_tokenizer(
+    model, tokenizer,hook_handle = get_model_and_tokenizer(
         args, comp_config
     )
 
@@ -344,18 +397,31 @@ def main():
         warmup_steps=args.warmup_steps,
         warmup_ratio=args.warmup_ratio
     )
+    
     trainer = Trainer(
         model=model,
         train_dataset=dataset,
         args=training_config,
         data_collator=data_collator,
-        callbacks=[SaveTokenizerCallback(tokenizer), MTPLossCallback()]  # 添加回调
+        callbacks=[SaveTokenizerCallback(tokenizer), MTPLossCallback(loss_buffer)]  # 添加回调
     )
+
+    # 1. 弹出默认的 TensorBoardCallback (它目前排在队列最前面)
+    tb_callback = trainer.pop_callback(TensorBoardCallback)
+
+    # 2. 如果成功移除了，再加回来保证顺序正确
+    if tb_callback is not None:
+        trainer.add_callback(tb_callback)
+
     # 在加载检查点时使用上下文管理器
     if resume_from_checkpoint:
-        trainer.train(resume_from_checkpoint=resume_from_checkpoint)
+           trainer.train(resume_from_checkpoint=resume_from_checkpoint)
     else:
         trainer.train()
+
+    # 训练完成，显式移除钩子
+    hook_handle.remove()
+    print("Hook removed successfully.")
     
 
 
