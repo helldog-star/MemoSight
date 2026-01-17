@@ -64,10 +64,14 @@ class MyDataset(torch.utils.data.Dataset):
                     os.makedirs(cache_dir, exist_ok=True)
             
             self.cache_path = os.path.join(cache_dir, cache_filename)
-            if use_EPL and self.aux_config["mtp_mode"] != "cross-attention":
+
+            if self.aux_config is not None:
+                if self.aux_config["mtp_mode"] == "cross-attention":
+                    self.cache_path = self.cache_path.replace(".pt", "_EPL_cross_attention_mtp.pt")
+                elif self.aux_config["mtp_mode"] == "normal":
+                    self.cache_path = self.cache_path.replace(".pt", "_EPL.pt")
+            elif use_EPL:
                 self.cache_path = self.cache_path.replace(".pt", "_EPL.pt")
-            elif use_EPL and self.aux_config["mtp_mode"] == "cross-attention":
-                self.cache_path = self.cache_path.replace(".pt", "_EPL_cross_attention.pt")
             else:
                 self.cache_path = self.cache_path
         else:
