@@ -1365,9 +1365,10 @@ class Qwen2MTPModule(nn.Module):
         # ========== Gradient Detaching for COT Tokens ==========
         # 截断cot token的梯度，因为推理时只保留compress token
         # 这样可以让信息尽可能更新到compress token中，而不是cot token
-        if cot_token_mask is not None and hidden_states.requires_grad:
+        if compress_states is not None and cot_token_mask is not None and hidden_states.requires_grad:
+            # compress_states: (batch, compress_len, hidden_dim)
             # cot_token_mask: (batch, seq_len), True表示cot token
-            # 对于cot token位置，我们需要截断梯度，阻止梯度流回这些位置
+            # 如果是cross-attention mode，对于cot token位置，我们需要截断梯度，阻止梯度流回这些位置
             cot_mask_expanded = cot_token_mask.unsqueeze(-1)  # (batch, seq_len, 1)
             
             # 对于cot token位置，使用detach后的值，这样cot token位置不会接收梯度，但可以参与前向传播
@@ -1375,7 +1376,7 @@ class Qwen2MTPModule(nn.Module):
             hidden_states = torch.where(
                 cot_mask_expanded,
                 hidden_states_detached,  # cot token位置：使用detach的值，不接收梯度
-                hidden_states            # 其他位置：保持原值，正常接收梯度
+                hidden_states            # 其他位置保持原值，正常接收梯度
             )
         
         return hidden_states
@@ -1395,6 +1396,9 @@ class Qwen2ForCausalLM(Qwen2PreTrainedModel, GenerationMixin):
         self.mtp_module_work_layer = getattr(config, "mtp_module_work_layer", -1)
         self.mtp_mode = getattr(config, "mtp_mode", "normal")
         self.mtp_lambda = getattr(config, "mtp_lambda", 1.0)
+        self.stop_cot_gradient = getattr(config, "stop_cot_gradient", False)
+        if self.stop_cot_gradient:
+            assert self.mtp_mode == "cross-attention", "stop_cot_gradient only works in cross-attention mode"
 
         if self.mtp_depth > 0:
             self.mtp_modules = nn.ModuleList([
@@ -1552,14 +1556,14 @@ class Qwen2ForCausalLM(Qwen2PreTrainedModel, GenerationMixin):
                 
                 position_embeddings = self.model.rotary_emb(hidden_states, position_ids) # 计算
 
+                # 需要的变量
+                mtp_compress_states = None
+                mtp_compress_position_ids = None
+                mtp_cot_token_mask = None
+                mtp_compress_position_embeddings = None
+                mtp_cross_attention_mask = None
                 # for cross-attention MTP
                 if self.mtp_mode == "cross-attention":
-                    # 需要的变量
-                    mtp_compress_states = None
-                    mtp_compress_position_ids = None
-                    mtp_compress_position_embeddings = None
-                    mtp_cross_attention_mask = None
-                    mtp_cot_token_mask = None
 
                     # 准备compress states和cross-attention相关参数
                     # 这里有个大坑，每个sample的compress token个数不同
@@ -1609,6 +1613,15 @@ class Qwen2ForCausalLM(Qwen2PreTrainedModel, GenerationMixin):
                     flat_pos_ids = position_ids[row_comp_index, column_comp_index]
                     mtp_compress_position_ids[row_comp_index, col_indices] = flat_pos_ids
 
+                    if self.stop_cot_gradient:
+                        # 准备mtp_cot_token_mask，用于截断 MTP loss 中cot部分的梯度
+                        mtp_cot_token_mask = torch.ones(
+                            (batch_size, input_ids.size(1)),
+                            dtype=torch.bool,
+                            device=current_hidden.device
+                        )
+                        # 将 compress token 的位置标记为 False
+                        mtp_cot_token_mask[row_comp_index, column_comp_index] = False
 
                 
                 # Main model: hidden(t) -> predict t+1 (labels[t])
@@ -1650,6 +1663,10 @@ class Qwen2ForCausalLM(Qwen2PreTrainedModel, GenerationMixin):
                     curr_hidden_input = curr_hidden_input[:, :curr_len, :]
                     next_token_embeds = next_token_embeds[:, :curr_len, :]
                     mtp_target_labels = mtp_target_labels[:, :curr_len]
+                    if mtp_cot_token_mask is not None:
+                        # 调整 mtp_cot_token_mask 索引
+                        assert mtp_cot_token_mask.size(1) == curr_hidden_input.size(1), "mtp_cot_token_mask size mismatch"
+                        mtp_cot_token_mask = mtp_cot_token_mask[:, :curr_len]
                     
                     # 3. 准备attention_mask和position_ids
                     if attention_mask is not None:
@@ -1687,7 +1704,6 @@ class Qwen2ForCausalLM(Qwen2PreTrainedModel, GenerationMixin):
                         max_compress_len = mtp_compress_states.size(1)
                         # 初始化mask为负无穷（mask掉所有位置）
                         min_dtype = torch.finfo(curr_hidden_input.dtype).min
-                        
 
                         mtp_cross_attention_mask = torch.full(
                             (batch_size, 1, curr_len, max_compress_len),
@@ -1718,11 +1734,7 @@ class Qwen2ForCausalLM(Qwen2PreTrainedModel, GenerationMixin):
                                 mtp_cross_attention_mask
                             )
                     
-                    # 准备cot token mask
-                    if mtp_cot_token_mask is not None:
-                        # 截断到当前长度
-                        mtp_cot_token_mask = mtp_cot_token_mask[:, :curr_len]
-                    
+
                     # 4. MTP模块前向传播
                     mtp_hidden = mtp_module(
                         hidden_prev=curr_hidden_input,        

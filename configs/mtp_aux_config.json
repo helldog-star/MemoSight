@@ -4,5 +4,6 @@
     "mtp_hidden_size": null,
     "Expectation": false,
     "mtp_module_work_layer": -1,
-    "mtp_mode": "normal"
+    "mtp_mode": "normal",
+    "stop_cot_gradient": false
 }
