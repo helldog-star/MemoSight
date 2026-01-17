@@ -25,6 +25,13 @@ root_dir="$4"
 output_base_dir="$5"
 tokenizer_path="$6"
 
+# 根据model_tag自动调整use_EPL：vanilla和lightthinker为false，其余为true
+if [ "$model_tag" = "vanilla" ] || [ "$model_tag" = "lightthinker" ]; then
+    use_EPL="false"
+else
+    use_EPL="true"
+fi
+
 # 检查必需参数是否为空
 if [ -z "$model_tag" ] || [ -z "$repetition_penalty" ] || [ -z "$ckpt" ] || [ -z "$root_dir" ] || [ -z "$output_base_dir" ] || [ -z "$tokenizer_path" ]; then
     echo "错误: model_tag, repetition_penalty, ckpt, root_dir, output_base_dir, tokenizer_path 不能为空"
@@ -92,6 +99,7 @@ done
 
 echo "model_tag: ${model_tag}"
 echo "repetition_penalty: ${repetition_penalty}"
+echo "use_EPL: ${use_EPL}"
 echo "output_path: ${output_tag}"
 echo "model_path: ${model_path}"
 echo "Inference model: ${model_tag}..."
@@ -139,7 +147,7 @@ do
             --compress_prompt $compress_prompt \
             --update_attention_method $update_attention_method \
             --split_size $split_size \
-            --use_EPL False \
+            --use_EPL $use_EPL \
             --model_path $model_path \
             --index $real_index > "${output_tag}/inference_log/${rolling_rope}_${compress_prompt}/${real_index}${prefix}_${model_short_tag}_${ckpt}.txt" 2>&1 &
         
