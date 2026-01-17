@@ -23,7 +23,6 @@ CONDA_ENV_NAME="niah"  # Conda环境名称
 # 设置推理和评估的默认参数
 REPETITION_PENALTY="1.1"  # 重复惩罚系数
 CKPT="1305"  # 检查点编号，可以根据实际情况修改
-EVAL_METHOD="anchor-thought"  # 评估方法：anchor-thought 或 normal
 DATASETS=("bbh" "gpqa" "gsm8k" "mmlu")  # 要评估的数据集
 
 # 获取脚本所在目录
@@ -34,6 +33,10 @@ SGLANG_INFERENCE_SCRIPT="${SCRIPT_DIR}/sglang_inference.sh"
 EVALUATE_SCRIPT="${SCRIPT_DIR}/evaluate.sh"
 
 # ==================== 通用函数 ====================
+
+export PYTHONPATH=$PYTHONPATH:${ROOT_DIR}
+cd ${ROOT_DIR}
+
 # 训练模型
 train_model() {
     local model_tag=$1

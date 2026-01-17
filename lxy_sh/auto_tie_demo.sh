@@ -23,7 +23,6 @@ CONDA_ENV_NAME="lightinfer"  # Conda环境名称
 # 设置推理和评估的默认参数
 REPETITION_PENALTY="1.1"  # 重复惩罚系数
 CKPT="1"  # 检查点编号，可以根据实际情况修改
-# EVAL_METHOD="anchor-thought"  # 评估方法：anchor-thought 或 normal
 DATASETS=("bbh" "gpqa" "gsm8k" "mmlu")  # 要评估的数据集
 
 # 获取脚本所在目录
@@ -134,26 +133,24 @@ inference_and_evaluate() {
 
 # inference_and_evaluate "vanilla" "normal" "sglang_inference"
 
-# ==================== 模型2: lightthinker ====================
-train_model "lightthinker" "False" "2e-5" "aug-wo-pc" "None"
-if [ $? -ne 0 ]; then
-    echo "❌ lightthinker训练失败，退出"
-    exit 1
-fi
+# # ==================== 模型2: lightthinker ====================
+# train_model "lightthinker" "False" "2e-5" "aug-wo-pc" "None"
+# if [ $? -ne 0 ]; then
+#     echo "❌ lightthinker训练失败，退出"
+#     exit 1
+# fi
 
-inference_and_evaluate "lightthinker" "anchor-thought" "inference"
+# inference_and_evaluate "lightthinker" "anchor-thought" "inference"
 
 
+# # ==================== 模型3: lightthinker_epl ====================
+# train_model "lightthinker_epl" "True" "2e-5" "aug-wo-pc" "None"
+# if [ $? -ne 0 ]; then
+#     echo "❌ lightthinker_epl训练失败，退出"
+#     exit 1
+# fi
 
-# ==================== 模型1: lightthinker_epl ====================
-train_model "lightthinker_epl" "True" "2e-5" "aug-wo-pc" "None"
-if [ $? -ne 0 ]; then
-    echo "❌ lightthinker_epl训练失败，退出"
-    exit 1
-fi
-
-inference_and_evaluate "lightthinker_epl" "anchor-thought" "inference"
-
+# inference_and_evaluate "lightthinker_epl" "anchor-thought" "inference"
 
 
 # ==================== 模型2: lightthinker_epl_mtp ====================
