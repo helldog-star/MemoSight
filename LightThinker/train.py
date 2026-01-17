@@ -296,7 +296,6 @@ def get_dataset_and_data_collator(
     padding_config:Dict,
     attention_config:Dict,
     sample_config:Dict,
-    aux_config:Dict,
 ) -> Tuple[MyDataset, MyDataCollator]:
     
     cache_dir=os.path.join(os.path.dirname(args.train_path),"dataset_cache")
@@ -314,10 +313,9 @@ def get_dataset_and_data_collator(
         output_compress_instruction=args.output_compress_instruction,
         cache_dir=cache_dir,
         cache_filename=cache_filename,
-        force_preprocess=True,
+        force_preprocess=False,
         local_rank=local_rank,
         use_EPL=args.use_EPL,
-        aux_config=aux_config,
     )
 
     data_collator = MyDataCollator(
@@ -349,9 +347,6 @@ def main():
         args, comp_config
     )
 
-    with open(args.aux_config, "r", encoding='utf-8') as f:
-        aux_config = json.load(f)
-
     sample_config:Dict = dict(
         mode=args.mode,
         hybrid=args.hybrid
@@ -377,7 +372,6 @@ def main():
         padding_config=padding_config,
         attention_config=attention_config,
         sample_config=sample_config,
-        aux_config=aux_config
     )
 
     training_config = TrainingArguments(
