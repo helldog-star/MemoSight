@@ -29,7 +29,6 @@ class MyDataset(torch.utils.data.Dataset):
         force_preprocess: bool = False,  # 设置为True可强制重新预处理
         local_rank: int = 0,
         use_EPL=False,
-        aux_config: Dict=None
     ):
         self.check_consistency = False
         self.train_on_input:bool = train_on_input
@@ -51,7 +50,6 @@ class MyDataset(torch.utils.data.Dataset):
         self.output_compress_instruction:str = output_compress_instruction if output_compress_instruction != None else ""
 
         self.use_EPL = use_EPL
-        self.aux_config = aux_config
         
         # 1. 获取当前进程的 Rank (如果是单卡运行，默认 Rank 为 0)
         self.local_rank = local_rank
@@ -65,12 +63,7 @@ class MyDataset(torch.utils.data.Dataset):
             
             self.cache_path = os.path.join(cache_dir, cache_filename)
 
-            if self.aux_config is not None:
-                if self.aux_config["mtp_mode"] == "cross-attention":
-                    self.cache_path = self.cache_path.replace(".pt", "_EPL_cross_attention_mtp.pt")
-                elif self.aux_config["mtp_mode"] == "normal":
-                    self.cache_path = self.cache_path.replace(".pt", "_EPL.pt")
-            elif use_EPL:
+            if use_EPL:
                 self.cache_path = self.cache_path.replace(".pt", "_EPL.pt")
             else:
                 self.cache_path = self.cache_path
