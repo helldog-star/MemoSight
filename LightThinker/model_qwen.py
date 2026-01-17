@@ -1240,13 +1240,13 @@ class Qwen2MTPModule(nn.Module):
     input: [hidden_prev, target_embeds, compress_states]
     output: 预测下一个token的hidden states
     """
-    def __init__(self, config, layer_idx, no_prev_norm=False):
+    def __init__(self, config, layer_idx, prev_norm=False):
         super().__init__()
         self.config = config
         self.hidden_size = config.hidden_size
-        self.no_prev_norm = no_prev_norm
+        self.prev_norm = prev_norm
 
-        if not no_prev_norm:
+        if prev_norm:
             self.norm_prev = Qwen2RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
         
         self.norm_target = Qwen2RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
@@ -1305,16 +1305,14 @@ class Qwen2MTPModule(nn.Module):
         Returns:
             hidden_states: (batch, seq_len, hidden_dim) - 用于预测下一个token
         """
-        if self.no_prev_norm:
-            hidden_prev_norm = hidden_prev
-        else:
-            hidden_prev_norm = self.norm_prev(hidden_prev)
+        if self.prev_norm:
+            hidden_prev = self.norm_prev(hidden_prev)
         
         # 归一化目标embedding
         target_norm = self.norm_target(target_embeds)
         
         # 拼接 [hidden_prev, target_embeds] (batch, seq_len, 2 * hidden_dim)
-        concat_input = torch.cat([hidden_prev_norm, target_norm], dim=-1)
+        concat_input = torch.cat([hidden_prev, target_norm], dim=-1)
         
         # Shape: (batch, seq_len, hidden_dim)
         projected_states = self.projection(concat_input)
@@ -1375,7 +1373,7 @@ class Qwen2MTPModule(nn.Module):
             hidden_states_detached = hidden_states.detach()
             hidden_states = torch.where(
                 cot_mask_expanded,
-                hidden_states_detached,  # cot token位置：使用detach的值，不接收梯度
+                hidden_states_detached,  # cot token位置，使用detach的值，不接收梯度
                 hidden_states            # 其他位置保持原值，正常接收梯度
             )
         
@@ -1405,10 +1403,13 @@ class Qwen2ForCausalLM(Qwen2PreTrainedModel, GenerationMixin):
                     Qwen2MTPModule(
                         config, 
                         layer_idx=config.num_hidden_layers+i,
-                        no_prev_norm=(self.mtp_module_work_layer==-1 and i==0)  # mtp作用在最后一个hidden时，第一层不需要norm
+                        prev_norm=(self.mtp_module_work_layer!=-1 and i==0)  # 中间层mtp的第一个module需要prev_norm
                     ) 
                     for i in range(self.mtp_depth)
                 ])
+            self.mtp_norm = nn.ModuleList(
+                [Qwen2RMSNorm(config.hidden_size, eps=config.rms_norm_eps) for _ in range(self.mtp_depth)]
+            )
 
         # Initialize weights and apply final processing
         self.post_init()
@@ -1555,14 +1556,13 @@ class Qwen2ForCausalLM(Qwen2PreTrainedModel, GenerationMixin):
                     current_hidden = outputs.hidden_states[self.mtp_module_work_layer]
                 
                 position_embeddings = self.model.rotary_emb(hidden_states, position_ids) # 计算
-
-                # 需要的变量
+                
+                # for cross-attention MTP
                 mtp_compress_states = None
                 mtp_compress_position_ids = None
                 mtp_cot_token_mask = None
                 mtp_compress_position_embeddings = None
                 mtp_cross_attention_mask = None
-                # for cross-attention MTP
                 if self.mtp_mode == "cross-attention":
 
                     # 准备compress states和cross-attention相关参数
@@ -1646,6 +1646,9 @@ class Qwen2ForCausalLM(Qwen2PreTrainedModel, GenerationMixin):
                     next_token_embeds = self.model.embed_tokens(next_token_ids)
                     # 截断hidden states，因为后面的用不着了，长度与next_token_embeds对齐
                     curr_hidden_input = current_hidden[:, :-1]
+                    if mtp_cot_token_mask is not None:
+                        # 调整 mtp_cot_token_mask 与 hidden_input 对齐
+                        mtp_cot_token_mask = mtp_cot_token_mask[:, :-1]
                     
                     # 2. MTP的目标labels（loss_fn会对labels左移一位）
 
@@ -1658,15 +1661,15 @@ class Qwen2ForCausalLM(Qwen2PreTrainedModel, GenerationMixin):
                     sizes = (curr_hidden_input.size(1), next_token_embeds.size(1), mtp_target_labels.size(1))
                     assert len(set(sizes)) == 1, \
                         f"Size mismatch: hidden={sizes[0]}, embeds={sizes[1]}, labels={sizes[2]}"
+                    assert mtp_cot_token_mask is None or mtp_cot_token_mask.size(1) == curr_hidden_input.size(1), "mtp_cot_token_mask size mismatch"
+
                     curr_len = curr_hidden_input.size(1)
 
+                    # 有点多此一举，但是会很安全
                     curr_hidden_input = curr_hidden_input[:, :curr_len, :]
                     next_token_embeds = next_token_embeds[:, :curr_len, :]
                     mtp_target_labels = mtp_target_labels[:, :curr_len]
-                    if mtp_cot_token_mask is not None:
-                        # 调整 mtp_cot_token_mask 索引
-                        assert mtp_cot_token_mask.size(1) == curr_hidden_input.size(1), "mtp_cot_token_mask size mismatch"
-                        mtp_cot_token_mask = mtp_cot_token_mask[:, :curr_len]
+                    mtp_cot_token_mask = mtp_cot_token_mask[:, :curr_len] if mtp_cot_token_mask is not None else None
                     
                     # 3. 准备attention_mask和position_ids
                     if attention_mask is not None:
@@ -1733,7 +1736,6 @@ class Qwen2ForCausalLM(Qwen2PreTrainedModel, GenerationMixin):
                                 torch.zeros_like(mtp_cross_attention_mask),
                                 mtp_cross_attention_mask
                             )
-                    
 
                     # 4. MTP模块前向传播
                     mtp_hidden = mtp_module(
@@ -1750,6 +1752,8 @@ class Qwen2ForCausalLM(Qwen2PreTrainedModel, GenerationMixin):
                         output_attentions=False,
                         cot_token_mask=mtp_cot_token_mask,
                     )
+
+                    mtp_hidden = self.mtp_norm[k](mtp_hidden)
 
                     # 5. 计算logits和loss
                     mtp_logits = self.lm_head(mtp_hidden)

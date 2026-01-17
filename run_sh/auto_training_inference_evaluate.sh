@@ -125,17 +125,44 @@
 
 
 
-echo "=======🚀 lightthinker_EPL_MTP_midlayer开始训练 ======="
-bash ./our_train_lighthinker_epl_mtp_midlayer.sh
-echo "=======🚀 lightthinker_EPL_MTP_midlayer结束训练 ======="
+# echo "=======🚀 lightthinker_EPL_MTP_midlayer开始训练 ======="
+# bash ./our_train_lighthinker_epl_mtp_midlayer.sh
+# echo "=======🚀 lightthinker_EPL_MTP_midlayer结束训练 ======="
 
-echo "=======🚀 lightthinker_EPL_MTP_midlayer开始推理 ======="
-bash ./our_inference_epl_mtp_midlayer.sh
-echo "=======🚀 lightthinker_EPL_MTP_midlayer结束推理 ======="
+# echo "=======🚀 lightthinker_EPL_MTP_midlayer开始推理 ======="
+# bash ./our_inference_epl_mtp_midlayer.sh
+# echo "=======🚀 lightthinker_EPL_MTP_midlayer结束推理 ======="
 
+
+# echo "=========================================="
+# echo "      🚀 lightthinker_epl_mtp_midlayer评估开始     "
+# echo "=========================================="
+# output_path="/tmp/hx/rrcot/lightthinker_epl_mtp_midlayer"
+# model_tag="lightthinker_epl_mtp_midlayer"
+# ckpt="1305"
+# output_tag="${output_path}/${model_tag}/inference"
+# bash our_evaluate.sh --method anchor-thought --dataset bbh --base_path ${output_tag}/bbh
+# bash our_evaluate.sh --method anchor-thought --dataset gpqa --base_path ${output_tag}/gpqa
+# bash our_evaluate.sh --method anchor-thought --dataset gsm8k --base_path ${output_tag}/gsm8k
+# bash our_evaluate.sh --method anchor-thought --dataset mmlu --base_path ${output_tag}/mmlu
+# echo "=========================================="
+# echo "      🚀 lightthinker_epl_mtp_midlayer评估完成      "
+# echo "=========================================="
+
+
+
+# cross attention MTP 对比试验
+
+echo "=======🚀 lightthinker_EPL_MTP_cross_attn开始训练 ======="
+bash ./our_train_lighthinker_epl_mtp_cross_attn.sh
+echo "=======🚀 lightthinker_EPL_MTP_cross_attn结束训练 ======="
+
+echo "=======🚀 lightthinker_EPL_MTP_cross_attn开始推理 ======="
+bash ./our_inference_epl_mtp_cross_attn.sh
+echo "=======🚀 lightthinker_EPL_MTP_cross_attn结束推理 ======="
 
 echo "=========================================="
-echo "      🚀 lightthinker_epl_mtp_midlayer评估开始     "
+echo "      🚀 lightthinker_epl_mtp_cross_attn评估开始     "
 echo "=========================================="
 output_path="/tmp/hx/rrcot/lightthinker_epl_mtp_midlayer"
 model_tag="lightthinker_epl_mtp_midlayer"

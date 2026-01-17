@@ -37,14 +37,9 @@ data/train/train.jsonl
 data/train/train_debug.jsonl
 data/train/data.zip
 
-# Hope
-lxy_hope/
-
 
 # liuxin
 meteor_inference.sh
 meteor_train_lightthinker.sh
 meteor_evaluate.sh
-my_utils/
-yuyu_train.sh
 
