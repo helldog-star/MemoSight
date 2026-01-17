@@ -8,7 +8,7 @@ import numpy as np
 from typing import *
 from tqdm import tqdm
 from copy import deepcopy
-from transformers import AutoTokenizer, DynamicCache, GenerationConfig
+from transformers import AutoTokenizer, DynamicCache, GenerationConfig, RepetitionPenaltyLogitsProcessor
 
 from LightThinker.utils import *
 from config import Config
@@ -149,11 +149,31 @@ class DebugUtils:
 class InferenceUtils:
 
     @classmethod
-    def get_predicted_token_ids(cls, model_output, idx:int=-1) -> int:
+    def get_predicted_token_ids(cls, model_output, idx:int=-1,token_utils= None,repetition_penalty:float=1.0,tokenizer=None) -> int:
         # [bs, seq_length, vocab_size]
         logits = model_output.logits    
         # [vocab_size]
         target_logits = logits[0, idx, :]
+
+        # 使用transformers实现
+        if token_utils is not None and repetition_penalty != 1.0:
+            #获取上下文token
+            generated_ids = set(token_utils.show_output_input_ids) | set(token_utils.show_prompt_input_ids)
+            #过滤special token
+            if tokenizer is not None:
+                special_ids = set(tokenizer.all_special_ids)
+                generated_ids = generated_ids - special_ids
+
+            if len(generated_ids)>0:
+                #构造tensor
+                input_ids_tensor = torch.tensor([list(generated_ids)],dtype=torch.long,device=target_logits.device)       
+                #构造processor
+                processor=RepetitionPenaltyLogitsProcessor(penalty=repetition_penalty)
+                #处理logits
+                target_logits = target_logits.unsqueeze(0)
+                target_logits = processor(input_ids_tensor,target_logits)
+                target_logits = target_logits.squeeze(0)
+
         predicted_token_ids: int = torch.argmax(target_logits).item()
         return predicted_token_ids
 
@@ -716,6 +736,7 @@ def _prefill_wo_prompt_compression(
     attn_utils:AttentionUtils,
     kv_utils:KVUtils,
     token_utils:TokenUtils,
+    repetition_penalty:float=1.0,
 ) -> int:
     """
     prompt will not be compressed
@@ -757,7 +778,7 @@ def _prefill_wo_prompt_compression(
     )
     # 4. get the generated token id
     predicted_token_id:int = InferenceUtils.get_predicted_token_ids(
-        model_output=model_output, idx=-1
+        model_output=model_output, idx=-1,token_utils=token_utils,repetition_penalty=repetition_penalty,tokenizer=tokenizer
     )
 
     return predicted_token_id
@@ -777,6 +798,7 @@ def _prefill_w_prompt_compression(
     attn_utils:AttentionUtils,
     kv_utils:KVUtils,
     token_utils:TokenUtils,
+    repetition_penalty:float=1.0,
 ) -> int:
     """
     prompt will be compressed
@@ -981,7 +1003,7 @@ def _prefill_w_prompt_compression(
 
     # 4. generate the new token id
     predicted_token_id:int = InferenceUtils.get_predicted_token_ids(
-        model_output=model_output, idx=-1
+        model_output=model_output, idx=-1,token_utils=token_utils,repetition_penalty=repetition_penalty,tokenizer=tokenizer
     )
 
     # 5. Update kv_Cache
@@ -1010,6 +1032,7 @@ def prefill(
     attn_utils:AttentionUtils,
     kv_utils:KVUtils,
     token_utils:TokenUtils,
+    repetition_penalty:float=1.0,
 ) -> int:
     """
     There are several possible scenarios here:
@@ -1033,7 +1056,8 @@ def prefill(
             attn_utils=attn_utils,
             kv_utils=kv_utils,
             token_utils=token_utils,
-            compress_prompt=compress_prompt
+            compress_prompt=compress_prompt,
+            repetition_penalty=repetition_penalty
         )
     else:
         return _prefill_w_prompt_compression(
@@ -1050,6 +1074,7 @@ def prefill(
             attn_utils=attn_utils,
             kv_utils=kv_utils,
             token_utils=token_utils,
+            repetition_penalty=repetition_penalty
         )
 
 @torch.no_grad()
@@ -1065,7 +1090,8 @@ def _token_level_generate(
     kv_utils:KVUtils,
     token_utils:TokenUtils,
     predicted_token_id:int,
-    update_attention_method:str="global"
+    update_attention_method:str="global",
+    repetition_penalty:float=1.0,
 ) -> Tuple[str, str]:
     
     assert update_attention_method in ["global", "local"]
@@ -1200,7 +1226,7 @@ def _token_level_generate(
 
         # 5. get the new predicted_tokens
         predicted_token_id:int = InferenceUtils.get_predicted_token_ids(
-            model_output=model_output, idx=-1
+            model_output=model_output, idx=-1,token_utils=token_utils,repetition_penalty=repetition_penalty,tokenizer=tokenizer
         )
         new_token_counters += 1
     
@@ -1223,6 +1249,7 @@ def _sentence_level_generate(
     predicted_token_id:int,
     update_attention_method:str="global",
     use_EPL:bool=False,
+    repetition_penalty:float=1.0,
 ) -> Tuple[str,str]:
     assert update_attention_method in ["global", "local"]
 
@@ -1382,7 +1409,7 @@ def _sentence_level_generate(
 
         # 5. get new predicted_tokens 151665
         predicted_token_id:int = InferenceUtils.get_predicted_token_ids(
-            model_output=model_output, idx=-1
+            model_output=model_output, idx=-1,token_utils=token_utils,repetition_penalty=repetition_penalty,tokenizer=tokenizer
         )
         debug_count += 1
         new_token_counters += 1
@@ -1409,6 +1436,7 @@ def generate(
     token_utils: TokenUtils,
     update_attention_method:str,
     use_EPL:bool=False,
+    repetition_penalty:float=1.0,
 ) -> Tuple[str,str]:
 
     assert update_attention_method in ['global', 'local'], update_attention_method
@@ -1428,7 +1456,8 @@ def generate(
         compress_prompt=compress_prompt,
         attn_utils=attn_utils,
         kv_utils=kv_utils,
-        token_utils=token_utils
+        token_utils=token_utils,
+        repetition_penalty=repetition_penalty
     )
 
     # 2. auto-regressive generation
@@ -1445,7 +1474,8 @@ def generate(
             kv_utils=kv_utils,
             token_utils=token_utils,
             predicted_token_id=predicted_token_id,
-            update_attention_method=update_attention_method
+            update_attention_method=update_attention_method,
+            repetition_penalty=repetition_penalty
         )
     elif comp_config.output_comp_level == 'sentence':
         prompt, output = _sentence_level_generate(
@@ -1461,7 +1491,8 @@ def generate(
             token_utils=token_utils,
             predicted_token_id=predicted_token_id,
             update_attention_method=update_attention_method,
-            use_EPL=use_EPL
+            use_EPL=use_EPL,
+            repetition_penalty=repetition_penalty
         )
     
     del kv_utils
@@ -1475,6 +1506,7 @@ def get_parser():
     parser.add_argument('--tokenizer_path', type=str)
     parser.add_argument('--compress_config', type=str)
     parser.add_argument('--max_new_tokens', type=int)
+    parser.add_argument('--repetition_penalty', type=float, default=1.0)
     parser.add_argument('--output_tag', type=str)
     parser.add_argument('--model_type', type=str, choices=['qwen', 'llama'])
     parser.add_argument('--model_path', type=str, default=None)
@@ -1559,6 +1591,7 @@ def eval_dataset(
     comp_config:Config,
     output_file:str,
     max_new_tokens:int,
+    repetition_penalty:float,
     max_prompt_len:int,
     device:str,
     dtype,
@@ -1681,6 +1714,7 @@ def eval_dataset(
                 token_utils=token_utils,
                 update_attention_method=update_attention_method,
                 use_EPL=use_EPL,
+                repetition_penalty=repetition_penalty,
             )
             end_time = time.time()
             input_len:int = len(token_utils.show_prompt_input_ids)
@@ -1766,9 +1800,10 @@ def main():
             tokenizer=tokenizer,
             reader=reader,
             comp_config=comp_config,
-            output_file=f"{args.output_tag}/{name}/{args.ckpt}/{args.index}-{args.split_size}{args.model_short_tag}.jsonl",
+            output_file=f"{args.output_tag}/{name}/{args.index}_{name}.jsonl",
             # output_file=f"inference_results/{args.output_tag}/{name}_{args.model_tag}_{args.ckpt}.jsonl",
             max_new_tokens=args.max_new_tokens,
+            repetition_penalty=args.repetition_penalty,
             max_prompt_len=max_prompt_len,
             device=device,
             dtype=dtype,

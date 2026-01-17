@@ -30,6 +30,7 @@ def get_args():
     parser.add_argument("--tp_size", type=int, default=4, help="Tensor Parallelism size")
     parser.add_argument("--batch_size", type=int, default=512, help="Batch size for progress bar updates")
     parser.add_argument("--extend_name", type=str, default="Your_tag", help="Sub-folder name")
+    parser.add_argument("--repetition_penalty", type=float, default=1.1, help="Repetition penalty coefficient")
     return parser.parse_args()
 
 async def main_async():  # 改为 async 函数
@@ -54,7 +55,7 @@ async def main_async():  # 改为 async 函数
         "top_p": 1.0,
         "top_k": -1,
         "skip_special_tokens": False,
-        "repetition_penalty": 1.1, #可选是否加入重复惩罚
+        "repetition_penalty": args.repetition_penalty,
     }
 
     final_save_dir = os.path.join(args.output_dir, args.extend_name)

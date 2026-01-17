@@ -1,30 +1,59 @@
-# # 替换成你的conda path
-# eval "$(/mnt/dolphinfs/hdd_pool/docker/user/hadoop-aipnlp/FMG/liuxinyu67/miniconda/bin/conda shell.bash hook)"
-# which conda
-# conda activate lightthinker
-# which python
 
-# # cd到你的项目路径
-# cd /mnt/dolphinfs/hdd_pool/docker/user/hadoop-aipnlp/FMG/liuxinyu67/RRcot
+# ==================== 通过命令行传入必要超参数 ====================
+# 使用方法: ./script.sh [model_tag] [repetition_penalty] [ckpt] [root_dir] [output_base_dir] [tokenizer_path]
+# 示例: ./script.sh "lightthinker" "1.1" "1305" "./LightThinker" "/tmp/hx/rrcot" "/tmp/hx/Qwen/Qwen2.5-1.5B-Instruct"
+
+# 检查必需参数（至少需要6个：model_tag, repetition_penalty, ckpt, root_dir, output_base_dir, tokenizer_path）
+if [ $# -lt 6 ]; then
+    echo "错误: 缺少必需的超参数"
+    echo "使用方法: $0 [model_tag] [repetition_penalty] [ckpt] [root_dir] [output_base_dir] [tokenizer_path]"
+    echo "  model_tag: 必需，模型标识（与训练时的init_tag一致）"
+    echo "  repetition_penalty: 必需，重复惩罚系数"
+    echo "  ckpt: 必需，检查点编号"
+    echo "  root_dir: 必需，代码根目录"
+    echo "  output_base_dir: 必需，输出基础目录"
+    echo "  tokenizer_path: 必需，tokenizer路径"
+    echo "示例: $0 \"lightthinker\" \"1.1\" \"1305\" \"/zhaorunsong/RRcot/LightThinker\" \"/tmp/hx/rrcot\" \"/tmp/hx/Qwen/Qwen2.5-1.5B-Instruct\""
+    exit 1
+fi
+
+# 从命令行参数获取
+model_tag="$1"
+repetition_penalty="$2"
+ckpt="$3"
+root_dir="$4"
+output_base_dir="$5"
+tokenizer_path="$6"
+
+# 检查必需参数是否为空
+if [ -z "$model_tag" ] || [ -z "$repetition_penalty" ] || [ -z "$ckpt" ] || [ -z "$root_dir" ] || [ -z "$output_base_dir" ] || [ -z "$tokenizer_path" ]; then
+    echo "错误: model_tag, repetition_penalty, ckpt, root_dir, output_base_dir, tokenizer_path 不能为空"
+    echo "model_tag: $model_tag"
+    echo "repetition_penalty: $repetition_penalty"
+    echo "ckpt: $ckpt"
+    echo "root_dir: $root_dir"
+    echo "output_base_dir: $output_base_dir"
+    echo "tokenizer_path: $tokenizer_path"
+    exit 1
+fi
+
+# 根据传入的超参数自动组合路径
+output_path="${output_base_dir}/${model_tag}"
+output_tag="${output_path}/inference"
+model_path="${output_path}/train/checkpoint-${ckpt}"
+
+# 检查模型路径是否存在
+if [ ! -d "$model_path" ]; then
+    echo "警告: 模型路径不存在: $model_path"
+    echo "请确认 model_tag 和 ckpt 是否正确"
+fi
 
 export PYTHONPATH=$PYTHONPATH:$(pwd)
-# we will load model from `output/{model_tag}/checkpoint-{args.ckpt}`
 
-
-# ============================================== 修改评测模型换这里的配置就行 =========================================================
-model_tag="lightthinker"
-model_short_tag="lightthinker"
-repetition_penalty=1.1
-ckpt=1305
-output_path="/tmp/hx/rrcot/lightthinker"
-output_tag="${output_path}/${model_tag}/inference"
-model_path="/tmp/hx/rrcot/lightthinker/output/lightthinker/checkpoint-1305"
-# ================================== zrs修改保存路径 ==========================================
-# ================================================================================================================================
-
+model_short_tag="${model_tag}"
 
 model_type="qwen"
-tokenizer_path="/tmp/hx/Qwen/Qwen2.5-1.5B-Instruct"
+# tokenizer_path 从命令行参数传入
 bos_token="<|im_start|>"
 eos_token="<|im_end|>"
 compress_config="./configs/LightThinker/qwen/v1.json"
@@ -33,8 +62,6 @@ compress_config="./configs/LightThinker/qwen/v1.json"
 # if you set the `model_path`, the arguments `ckpt` and `model_tag` will be ignored.
 # see line 1460 of the code in LightThinker/inference.py for more details.
 max_new_tokens=10240
-
-root_dir="./LightThinker"
 
 prefix=""
 diagonal="false"
@@ -48,27 +75,29 @@ prefill_compress="false"
 update_attention_method="local"
 
 
-# check "ours_infer_log" 
-if [ ! -d "${output_path}/ours_infer_log" ]; then
-    echo "Creating ${output_path}/ours_infer_log directory..."
-    mkdir -p "${output_path}/ours_infer_log"
+# check "inference_log" 
+if [ ! -d "${output_tag}/inference_log" ]; then
+    echo "Creating ${output_tag}/inference_log directory..."
+    mkdir -p "${output_tag}/inference_log"
 fi
 
 subfolders=("true_true" "true_false" "false_false" "false_true")
 for subfolder in "${subfolders[@]}"; do
-    folder_path="${output_path}/ours_infer_log/${subfolder}"
+    folder_path="${output_tag}/inference_log/${subfolder}"
     if [ ! -d "$folder_path" ]; then
         echo "Creating $folder_path directory..."
         mkdir -p "$folder_path"
     fi
 done
 
-
-
+echo "model_tag: ${model_tag}"
+echo "repetition_penalty: ${repetition_penalty}"
+echo "output_path: ${output_tag}"
+echo "model_path: ${model_path}"
 echo "Inference model: ${model_tag}..."
 
 #用于设置总共几张卡和开多少进程
-target_gpus=( 0 1 2 3 )
+target_gpus=( 0 1 2 3 4 5 6 7)
 process_per_gpu=4
 gpu_count=${#target_gpus[@]}
 # 自动计算总切片数 (假如用了2张卡，每张3进程，split_size就是6)
@@ -88,7 +117,7 @@ do
         echo "    Starting task index ${real_index}/${split_size}..."
 
         # 评测EPL训练模型时 --EPL=True 
-        CUDA_VISIBLE_DEVICES=$device nohup python "${root_dir}/inference_repe.py" \
+        CUDA_VISIBLE_DEVICES=$device nohup python "${root_dir}/inference.py" \
             --model_tag $model_tag \
             --model_short_tag $model_short_tag \
             --ckpt $ckpt \

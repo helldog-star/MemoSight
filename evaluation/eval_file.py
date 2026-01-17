@@ -4,6 +4,7 @@ import argparse
 import jsonlines
 from typing import *
 from tqdm import tqdm
+import os
 
 from utils import _print, read_jsonl
 from LightThinker import Tokenizer, Config
@@ -76,8 +77,8 @@ class Reference:
             return self.meta_data_list[idx]['meta_info']['domain']
     
     def update(self):
-        _print(f"updating {self.PATH_TEMPLATE.format( name=self.dataset_name)} ...")
-        with jsonlines.open(self.PATH_TEMPLATE.format( name=self.dataset_name), 'w') as writer:
+        _print(f"updating {self.PATH_TEMPLATE.format(name=self.dataset_name)} ...")
+        with jsonlines.open(self.PATH_TEMPLATE.format(name=self.dataset_name), 'w') as writer:
             pbar = tqdm(total=len(self.meta_data_list))
             for item in self.meta_data_list:
                 pbar.update(1)
@@ -104,7 +105,8 @@ class Evaluator:
             self.splitter_token_id
         )
         _print(f"The splitter is `{self.splitter}`")
-        
+        self.compress_cnt = self.comp_config.output_comp_n_token
+        print(f"Compress cnt: {self.compress_cnt}")
         self.eval_data_list:List[Dict] = list()
         for file_path in file_name_list:
             data_list = read_jsonl(file_path)
@@ -165,8 +167,18 @@ class Evaluator:
         return round(sum(l) / len(l) * scale, rounds)
 
     def metrics2str(self, metrics:Dict) -> str:
+        # 构建结果保存路径（模型路径在前，数据集路径在后）
+        if self.args.model_tag:
+            base_path = f'eval_results/{self.args.method}/{self.args.model_type}/{self.args.model_tag}/{self.args.dataset}'
+        else:
+            # 如果没有提供 model_tag，使用旧路径格式（向后兼容）
+            base_path = f'eval_results/{self.args.method}/{self.args.model_type}/{self.args.dataset}'
+        
         if len(metrics['compress_list']) != 0:
-            with jsonlines.open(f'frequency/{self.args.method}-{self.args.model_type}-{self.args.dataset}.jsonl', 'w') as writer:
+            freq_path = f'{base_path}/frequency.jsonl'
+            if not os.path.exists(freq_path):
+                os.makedirs(os.path.dirname(freq_path), exist_ok=True)
+            with jsonlines.open(freq_path, 'w') as writer:
                 writer.write(dict(
                     value=metrics['compress_list']
                 ))
@@ -182,6 +194,12 @@ class Evaluator:
             (f"compress: {self.avg(metrics['compress_cnt_list'])}"),
             (f"{round(metrics['correct']/metrics['total']*100, 2)},{round(sum(metrics['infer_time_list'])/3600, 2)},{int(round(self.avg(metrics['attend_list']),0))},{int(round(self.avg(metrics['output_len_list']), 0))},{int(round(self.avg(metrics['peak_mem_list']),0))},{int(round(self.avg(metrics['compress_cnt_list']),0))}"),
         ]
+        result_path = f'{base_path}/result.txt'
+        if not os.path.exists(result_path):
+            os.makedirs(os.path.dirname(result_path), exist_ok=True)
+        with open(result_path, 'w') as f:
+            for line in result_list:
+                f.write(line + '\n')
         return "\n".join(result_list)   
 
     def print_metrics(self, metrics:Dict):
@@ -324,6 +342,7 @@ def get_parser():
 
     parser.add_argument('--model_type', type=str, choices=['llama', 'qwen'])
     parser.add_argument('--dataset', type=str, choices=['bbh', 'gsm8k', 'gpqa', 'mmlu'])
+    parser.add_argument('--model_tag', type=str, default='', help='Model tag to distinguish different models')
     parser.add_argument('--files', nargs='+', help='List of files')
     parser.add_argument('--interaction', action="store_true")
 
@@ -377,7 +396,7 @@ def main():
 
     file_list:List[str] = args.files
     reference:Reference = Reference(
-         dataset_name=args.dataset, interaction=args.interaction
+        dataset_name=args.dataset, interaction=args.interaction
     )
 
     print_interaction_mode_instruction(args)
@@ -385,7 +404,7 @@ def main():
         args=args,
         comp_config=comp_config,
         tokenizer=tokenizer,
-        splitter_token_id=comp_config.split_token_id if args.method not in (CLASS_ANCHOR + CLASS_TOKEN) else comp_config.output_comp_token_id_list[-1],
+        splitter_token_id=comp_config.split_token_id, #if args.method not in (CLASS_ANCHOR + CLASS_TOKEN) else comp_config.output_comp_token_id_list[-1],
         file_name_list=file_list,
         reference=reference,
     )
