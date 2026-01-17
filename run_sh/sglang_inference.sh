@@ -55,7 +55,7 @@ source "$conda_sh_path"
 conda activate "$conda_env_name"
 echo "Using python: $(which python)"
 
-export PYTHONPATH="$(pwd):${PYTHONPATH}"
+# export PYTHONPATH="$(pwd):${PYTHONPATH}"
 
 # 设置默认参数
 datasets="mmlu gsm8k gpqa bbh"
@@ -69,10 +69,11 @@ echo "output_dir: ${output_dir}"
 echo "model_path: ${model_path}"
 echo "Inference model: ${model_tag} using sglang..."
 
-CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 python "${root_dir}/sglang_inference.py" \
+CUDA_VISIBLE_DEVICES=0,1,2,3 python "${root_dir}/sglang_inference.py" \
   --model_path $model_path \
   --datasets $datasets \
   --batch_size $batch_size \
   --output_dir $output_dir \
+  --tp_size 2 \
   --extend_name $extend_name \
   --repetition_penalty $repetition_penalty

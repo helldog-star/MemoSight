@@ -141,7 +141,7 @@ do
             --split_size $split_size \
             --use_EPL False \
             --model_path $model_path \
-            --index $real_index > "${output_path}/ours_infer_log/${rolling_rope}_${compress_prompt}/${real_index}${prefix}_${model_short_tag}_${ckpt}.txt" 2>&1 &
+            --index $real_index > "${output_tag}/inference_log/${rolling_rope}_${compress_prompt}/${real_index}${prefix}_${model_short_tag}_${ckpt}.txt" 2>&1 &
         
         sleep 5
     done

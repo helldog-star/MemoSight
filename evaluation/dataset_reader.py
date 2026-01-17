@@ -4,11 +4,18 @@ from typing import *
 import time
 import regex as re
 
+# DATASET_PATH = dict(
+#     mmlu="data/eval/mmlu.json",
+#     bbh="data/eval/bbh.json",
+#     gpqa="data/eval/gpqa.json",
+#     gsm8k="data/eval/gsm8k.json",
+# )
+
 DATASET_PATH = dict(
-    mmlu="data/eval/mmlu.json",
-    bbh="data/eval/bbh.json",
-    gpqa="data/eval/gpqa.json",
-    gsm8k="data/eval/gsm8k.json",
+    mmlu="data/eval_demo/mmlu.json",
+    bbh="data/eval_demo/bbh.json",
+    gpqa="data/eval_demo/gpqa.json",
+    gsm8k="data/eval_demo/gsm8k.json",
 )
 
 def _print(messages):

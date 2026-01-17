@@ -224,7 +224,7 @@ def get_model_and_tokenizer(
     else:
         assert False, "We only support llama and qwen model."
 
-    if args.aux_config is not None:
+    if args.aux_config is not None and args.aux_config != "None":
         _print(f"use ce + mtp loss...")
         assert os.path.exists(args.aux_config)
         from transformers import AutoConfig
@@ -390,12 +390,12 @@ def main():
         save_only_model=False,       # don't save the global_steps
         load_best_model_at_end=False,
         deepspeed=args.deepspeed,
-        save_total_limit=10,
+        save_total_limit=1,
         report_to="tensorboard",
         per_device_train_batch_size=args.micro_batch_size,
         gradient_accumulation_steps=args.gradient_accumulation_steps,
         warmup_steps=args.warmup_steps,
-        warmup_ratio=args.warmup_ratio
+        warmup_ratio=args.warmup_ratio,
     )
     
     trainer = Trainer(
