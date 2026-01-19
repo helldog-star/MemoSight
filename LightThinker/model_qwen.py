@@ -1264,11 +1264,12 @@ class Qwen2MTPModule(nn.Module):
         
         # Cross-attention layer to attend to compress tokens
         self.cross_attn = Qwen2CrossAttention(config, layer_idx)
-        self.post_attention_layernorm = Qwen2RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
+        self.cross_attn_layernorm = Qwen2RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
+        
         
         # MLP layer
         self.mlp = Qwen2MLP(config)
-        self.post_mlp_layernorm = Qwen2RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
+        self.post_attention_layernorm = Qwen2RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
     
     def forward(
         self, 
@@ -1339,7 +1340,7 @@ class Qwen2MTPModule(nn.Module):
         # ========== Cross-Attention to Compress Tokens ==========
         if compress_states is not None:
             residual = hidden_states
-            hidden_states = self.post_attention_layernorm(hidden_states)
+            hidden_states = self.cross_attn_layernorm(hidden_states)
             
             cross_attn_output, cross_attn_weights = self.cross_attn(
                 hidden_states=hidden_states,
@@ -1350,13 +1351,10 @@ class Qwen2MTPModule(nn.Module):
                 output_attentions=output_attentions,
             )
             hidden_states = residual + cross_attn_output
-        else:
-            # If no compress states provided, skip cross-attention
-            hidden_states = self.post_attention_layernorm(hidden_states)
         
         # ========== MLP ==========
         residual = hidden_states
-        hidden_states = self.post_mlp_layernorm(hidden_states)
+        hidden_states = self.post_attention_layernorm(hidden_states)
         hidden_states = self.mlp(hidden_states)
         hidden_states = residual + hidden_states
         
