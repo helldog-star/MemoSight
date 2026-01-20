@@ -971,10 +971,10 @@ class MyDataCollator:
             final['system_prompt_length'].append(new_item['system_prompt_length'])
             # row and column
             final['column_comp_continue_index'].extend(
-                    [0+i for i in range(new_item['system_prompt_length'][0])]
+                    [i for i in range(new_item['system_prompt_length'][0])]
                 )
             final['row_comp_continue_index'].extend([bsz_id] * new_item['system_prompt_length'][0])
-            
+
             for item in aug_data['tokenized']['locate_index']:
                 start, end, l_inst, n_comp, n_continue = item
                 # 直接添加，避免重复累积

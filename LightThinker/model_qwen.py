@@ -1394,7 +1394,7 @@ class Qwen2ForCausalLM(Qwen2PreTrainedModel, GenerationMixin):
         self.mtp_lambda = getattr(config, "mtp_lambda", 1.0)
         self.stop_cot_gradient = getattr(config, "stop_cot_gradient", False)
         if self.stop_cot_gradient:
-            assert self.mtp_mode in ["cross-attention", "stop_cot_gradient only works in cross-attention mode", "cross-attention-prompt-compression-continue"]
+            assert self.mtp_mode in ["cross-attention", "cross-attention-full"],"stop_cot_gradient only works in cross-attention mode"
 
         if self.mtp_depth > 0:
             self.mtp_modules = nn.ModuleList([
@@ -1505,7 +1505,7 @@ class Qwen2ForCausalLM(Qwen2PreTrainedModel, GenerationMixin):
         "Hey, are you conscious? Can you talk to me?\nI'm not conscious, but I can talk to you."
         ```"""
 
-        if self.mtp_mode == "cross-attention-prompt-compression-continue":
+        if self.mtp_mode == "cross-attention-full":
             # 继续压缩模式下，使用continue的index
             row_comp_index = row_comp_continue_index
             column_comp_index = column_comp_continue_index
@@ -1569,7 +1569,7 @@ class Qwen2ForCausalLM(Qwen2PreTrainedModel, GenerationMixin):
                 mtp_cot_token_mask = None
                 mtp_compress_position_embeddings = None
                 mtp_cross_attention_mask = None
-                if self.mtp_mode in ["cross-attention", "cross-attention-prompt-compression-continue"]:
+                if self.mtp_mode in ["cross-attention", "cross-attention-full"]:
 
                     # 准备compress states和cross-attention相关参数
                     # 这里有个大坑，每个sample的compress token个数不同
@@ -1732,7 +1732,7 @@ class Qwen2ForCausalLM(Qwen2PreTrainedModel, GenerationMixin):
                             compress_positions = mtp_compress_position_ids.unsqueeze(1)  # (batch, 1, compress_len)
                             # 条件 A: Causal (当前位置 >= 压缩位置)
                             is_causal = curr_positions >= compress_positions  # (batch, curr_len, compress_len)
-                            if self.mtp_mode == "cross-attention-prompt-compression-continue":
+                            if self.mtp_mode == "cross-attention-full":
                                 for b in range(is_causal.size(0)):
                                     is_causal[b, :system_prompt_length[b], :] = False
                             # 条件 B: Not Padding (压缩位置不是填充出来的)
