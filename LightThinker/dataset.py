@@ -935,8 +935,11 @@ class MyDataCollator:
             labels=list(),
             attention_mask=list(),
             position_ids=list(),
+            system_prompt_length=list(),
             row_comp_index=list(),
             column_comp_index=list(),
+            row_comp_continue_index=list(),
+            column_comp_continue_index=list(),
         )
         for bsz_id, instance in enumerate(instances):
             _, _, _, _, aug_data = instance
@@ -965,7 +968,13 @@ class MyDataCollator:
             final['input_ids'].append(new_item['input_ids'])
             final['labels'].append(new_item['labels'])
             final['position_ids'].append(new_item['position_ids'])
+            final['system_prompt_length'].append(new_item['system_prompt_length'])
             # row and column
+            final['column_comp_continue_index'].extend(
+                    [0+i for i in range(new_item['system_prompt_length'][0])]
+                )
+            final['row_comp_continue_index'].extend([bsz_id] * new_item['system_prompt_length'][0])
+            
             for item in aug_data['tokenized']['locate_index']:
                 start, end, l_inst, n_comp, n_continue = item
                 # 直接添加，避免重复累积
@@ -973,6 +982,13 @@ class MyDataCollator:
                     [end+l_inst+i for i in range(n_comp)]
                 )
                 final['row_comp_index'].extend([bsz_id] * n_comp)
+
+                # compression + continue
+                total_comp_continue = n_comp + n_continue 
+                final['column_comp_continue_index'].extend(
+                    [end+l_inst+i for i in range(total_comp_continue)]
+                )
+                final['row_comp_continue_index'].extend([bsz_id] * total_comp_continue)
         
         return dict(
             input_ids=torch.as_tensor(
@@ -988,11 +1004,20 @@ class MyDataCollator:
             position_ids=torch.as_tensor(
                 final['position_ids']
             ),
+            system_prompt_length=torch.as_tensor(
+                final['system_prompt_length']
+            ),
             row_comp_index=torch.as_tensor(
                 final['row_comp_index']
             ),
             column_comp_index=torch.as_tensor(
                 final['column_comp_index']
+            ),
+            row_comp_continue_index=torch.as_tensor(
+                final['row_comp_continue_index']
+            ),
+            column_comp_continue_index=torch.as_tensor( 
+                final['column_comp_continue_index']
             ),
         )
 

@@ -184,13 +184,16 @@ class Tokenizer:
             labels=list(),
             locate_index=list(),
             position_ids=list(),
-            locate_indicator=list()
+            locate_indicator=list(),
+            system_prompt_length=list()
         )
         compression_count = 0
         subtract_compressed_token = False
         for i in range(len(tokenized_label_list)):
             if len(final_item['input_ids']) >= max_length:
                 break
+            if i == 0:
+                final_item["system_prompt_length"].append(len(tokenized_input_id_list[0][0]))
             for j in range(len(tokenized_label_list[i])):
                 if len(final_item['input_ids']) >= max_length:
                     break

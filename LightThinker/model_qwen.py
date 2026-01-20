@@ -1394,7 +1394,7 @@ class Qwen2ForCausalLM(Qwen2PreTrainedModel, GenerationMixin):
         self.mtp_lambda = getattr(config, "mtp_lambda", 1.0)
         self.stop_cot_gradient = getattr(config, "stop_cot_gradient", False)
         if self.stop_cot_gradient:
-            assert self.mtp_mode == "cross-attention", "stop_cot_gradient only works in cross-attention mode"
+            assert self.mtp_mode in ["cross-attention", "stop_cot_gradient only works in cross-attention mode", "cross-attention-prompt-compression-continue"]
 
         if self.mtp_depth > 0:
             self.mtp_modules = nn.ModuleList([
@@ -1469,6 +1469,9 @@ class Qwen2ForCausalLM(Qwen2PreTrainedModel, GenerationMixin):
         num_logits_to_keep: int = 0,
         row_comp_index: Optional[torch.Tensor]=None,
         column_comp_index: Optional[torch.Tensor]=None,
+        row_comp_continue_index: Optional[torch.Tensor]=None,
+        column_comp_continue_index: Optional[torch.Tensor]=None,
+        system_prompt_length: Optional[torch.LongTensor] = None,
         **loss_kwargs,
     ) -> Union[Tuple, CausalLMOutputWithPast]:
         r"""
@@ -1501,6 +1504,11 @@ class Qwen2ForCausalLM(Qwen2PreTrainedModel, GenerationMixin):
         >>> tokenizer.batch_decode(generate_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False)[0]
         "Hey, are you conscious? Can you talk to me?\nI'm not conscious, but I can talk to you."
         ```"""
+
+        if self.mtp_mode == "cross-attention-prompt-compression-continue":
+            # 继续压缩模式下，使用continue的index
+            row_comp_index = row_comp_continue_index
+            column_comp_index = column_comp_continue_index
 
         output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
         output_hidden_states = (
@@ -1561,7 +1569,7 @@ class Qwen2ForCausalLM(Qwen2PreTrainedModel, GenerationMixin):
                 mtp_cot_token_mask = None
                 mtp_compress_position_embeddings = None
                 mtp_cross_attention_mask = None
-                if self.mtp_mode == "cross-attention":
+                if self.mtp_mode in ["cross-attention", "cross-attention-prompt-compression-continue"]:
 
                     # 准备compress states和cross-attention相关参数
                     # 这里有个大坑，每个sample的compress token个数不同
@@ -1724,6 +1732,9 @@ class Qwen2ForCausalLM(Qwen2PreTrainedModel, GenerationMixin):
                             compress_positions = mtp_compress_position_ids.unsqueeze(1)  # (batch, 1, compress_len)
                             # 条件 A: Causal (当前位置 >= 压缩位置)
                             is_causal = curr_positions >= compress_positions  # (batch, curr_len, compress_len)
+                            if self.mtp_mode == "cross-attention-prompt-compression-continue":
+                                for b in range(is_causal.size(0)):
+                                    is_causal[b, :system_prompt_length[b], :] = False
                             # 条件 B: Not Padding (压缩位置不是填充出来的)
                             is_not_padding = compress_positions != -1
                             can_attend = is_causal & is_not_padding # (batch, curr_len, max_compress_len)
@@ -1731,7 +1742,7 @@ class Qwen2ForCausalLM(Qwen2PreTrainedModel, GenerationMixin):
                             # 将允许的位置设置为0，不允许的位置保持min_dtype
                             mtp_cross_attention_mask = torch.where(
                                 can_attend.unsqueeze(1),  # (batch, 1, curr_len, compress_len)
-                                torch.zeros_like(mtp_cross_attention_mask),
+                                torch.zeros_like(mtp_cross_attention_mask),      
                                 mtp_cross_attention_mask
                             )
 
