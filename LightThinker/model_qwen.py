@@ -1732,9 +1732,10 @@ class Qwen2ForCausalLM(Qwen2PreTrainedModel, GenerationMixin):
                             compress_positions = mtp_compress_position_ids.unsqueeze(1)  # (batch, 1, compress_len)
                             # 条件 A: Causal (当前位置 >= 压缩位置)
                             is_causal = curr_positions >= compress_positions  # (batch, curr_len, compress_len)
-                            if self.mtp_mode == "cross-attention-full":
-                                for b in range(is_causal.size(0)):
-                                    is_causal[b, :system_prompt_length[b], :] = False
+                            
+                            # if self.mtp_mode == "cross-attention-full":
+                            #     for b in range(is_causal.size(0)):
+                            #         is_causal[b, :system_prompt_length[b], :] = False
                             # 条件 B: Not Padding (压缩位置不是填充出来的)
                             is_not_padding = compress_positions != -1
                             can_attend = is_causal & is_not_padding # (batch, curr_len, max_compress_len)
