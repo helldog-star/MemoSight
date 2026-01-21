@@ -1361,7 +1361,7 @@ class Qwen2MTPModule(nn.Module):
         # ========== Gradient Detaching for COT Tokens ==========
         # 截断cot token的梯度，因为推理时只保留compress token
         # 这样可以让信息尽可能更新到compress token中，而不是cot token
-        if compress_states is not None and cot_token_mask is not None and hidden_states.requires_grad:
+        if cot_token_mask is not None and hidden_states.requires_grad:
             # compress_states: (batch, compress_len, hidden_dim)
             # cot_token_mask: (batch, seq_len), True表示cot token
             # 如果是cross-attention mode，对于cot token位置，我们需要截断梯度，阻止梯度流回这些位置
@@ -1393,8 +1393,8 @@ class Qwen2ForCausalLM(Qwen2PreTrainedModel, GenerationMixin):
         self.mtp_mode = getattr(config, "mtp_mode", "normal")
         self.mtp_lambda = getattr(config, "mtp_lambda", 1.0)
         self.stop_cot_gradient = getattr(config, "stop_cot_gradient", False)
-        if self.stop_cot_gradient:
-            assert self.mtp_mode in ["cross-attention", "cross-attention-full"],"stop_cot_gradient only works in cross-attention mode"
+        # if self.stop_cot_gradient:
+        #     assert self.mtp_mode in ["normal", "cross-attention", "cross-attention-full"],"stop_cot_gradient only works in cross-attention mode"
 
         if self.mtp_depth > 0:
             self.mtp_modules = nn.ModuleList([
@@ -1569,6 +1569,7 @@ class Qwen2ForCausalLM(Qwen2PreTrainedModel, GenerationMixin):
                 mtp_cot_token_mask = None
                 mtp_compress_position_embeddings = None
                 mtp_cross_attention_mask = None
+                batch_size = current_hidden.size(0)
                 if self.mtp_mode in ["cross-attention", "cross-attention-full"]:
 
                     # 准备compress states和cross-attention相关参数
@@ -1619,15 +1620,15 @@ class Qwen2ForCausalLM(Qwen2PreTrainedModel, GenerationMixin):
                     flat_pos_ids = position_ids[row_comp_index, column_comp_index]
                     mtp_compress_position_ids[row_comp_index, col_indices] = flat_pos_ids
 
-                    if self.stop_cot_gradient:
-                        # 准备mtp_cot_token_mask，用于截断 MTP loss 中cot部分的梯度
-                        mtp_cot_token_mask = torch.ones(
-                            (batch_size, input_ids.size(1)),
-                            dtype=torch.bool,
-                            device=current_hidden.device
-                        )
-                        # 将 compress token 的位置标记为 False
-                        mtp_cot_token_mask[row_comp_index, column_comp_index] = False
+                if self.stop_cot_gradient:
+                    # 准备mtp_cot_token_mask，用于截断 MTP loss 中cot部分的梯度
+                    mtp_cot_token_mask = torch.ones(
+                        (batch_size, input_ids.size(1)),
+                        dtype=torch.bool,
+                        device=current_hidden.device
+                    )
+                    # 将 compress token 的位置标记为 False
+                    mtp_cot_token_mask[row_comp_index, column_comp_index] = False
 
                 
                 # Main model: hidden(t) -> predict t+1 (labels[t])
