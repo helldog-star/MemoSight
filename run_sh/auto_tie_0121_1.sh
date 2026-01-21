@@ -122,7 +122,7 @@ inference_and_evaluate() {
 }
 
 
-==================== 模型1: mtp_aux_midlayer_stopG_E_w1e-1 ====================
+# ==================== 模型1: mtp_aux_midlayer_stopG_E_w1e-1 ====================
 train_model "mtp_aux_midlayer_stopG_E_w1e-1" "True" "2e-5" "aug-wo-pc" "configs/mtp_aux_midlayer_stopG_E_w1e-1.json"
 if [ $? -ne 0 ]; then
     echo "❌ mtp_aux_midlayer_stopG_E_w1e-1训练失败，退出"
