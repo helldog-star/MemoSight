@@ -38,7 +38,9 @@ data/train/train.jsonl
 data/train/train_debug.jsonl
 data/train/data.zip
 
-
+# tensorboard
+tensorboard/
+  
 # liuxin
 meteor_inference.sh
 meteor_train_lightthinker.sh
