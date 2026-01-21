@@ -155,6 +155,20 @@ class MTPLossCallback(TrainerCallback):
             self.step_count = 0
 
 
+def init_mtp_from_last_layer(model) -> None:
+    if not hasattr(model, "mtp_modules") or getattr(model, "mtp_depth", 0) <= 0:
+        return
+    if not hasattr(model, "model") or not hasattr(model.model, "layers"):
+        return
+
+    last_layer = model.model.layers[-1]
+    with torch.no_grad():
+        for mtp_module in model.mtp_modules:
+            mtp_module.self_attn.load_state_dict(last_layer.self_attn.state_dict(), strict=False)
+            mtp_module.cross_attn.load_state_dict(last_layer.self_attn.state_dict(), strict=False)
+            mtp_module.mlp.load_state_dict(last_layer.mlp.state_dict(), strict=False)
+
+
 def get_parser():
     parser = argparse.ArgumentParser()
     parser.add_argument('--local_rank', type=int, help="just used for deepspeed.")
@@ -236,6 +250,10 @@ def get_model_and_tokenizer(
         model = model_class.from_pretrained(
             args.model_path, config=model_config, torch_dtype=torch.bfloat16, trust_remote_code=True
         )
+
+        if model_config.get("init", False):
+            _print(f"initialize mtp...")
+            init_mtp_from_last_layer(model)
     
     else:
         _print(f"use ce loss...")
