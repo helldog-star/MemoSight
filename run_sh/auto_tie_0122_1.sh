@@ -131,6 +131,15 @@ fi
 
 inference_and_evaluate "mtp_aux_config_E_w1e-1_init" "anchor-thought" "inference"
 
+# ==================== 模型2: mtp_aux_cross_attn_config_E_w1e-1_init ====================
+train_model "mtp_aux_cross_attn_config_E_w1e-1_init" "True" "2e-5" "aug-wo-pc" "configs/mtp_aux_cross_attn_config_E_w1e-1_init.json"
+if [ $? -ne 0 ]; then
+    echo "❌ mtp_aux_cross_attn_config_E_w1e-1_init训练失败，退出"
+    exit 1
+fi
+
+inference_and_evaluate "mtp_aux_cross_attn_config_E_w1e-1_init" "anchor-thought" "inference"
+
 
 echo ""
 echo "=========================================="
