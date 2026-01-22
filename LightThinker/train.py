@@ -251,7 +251,7 @@ def get_model_and_tokenizer(
             args.model_path, config=model_config, torch_dtype=torch.bfloat16, trust_remote_code=True
         )
 
-        if model_config.get("init", False):
+        if getattr(model_config, "init", False):
             _print(f"initialize mtp...")
             init_mtp_from_last_layer(model)
     
