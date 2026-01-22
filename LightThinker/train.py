@@ -163,10 +163,29 @@ def init_mtp_from_last_layer(model) -> None:
 
     last_layer = model.model.layers[-1]
     with torch.no_grad():
-        for mtp_module in model.mtp_modules:
-            mtp_module.self_attn.load_state_dict(last_layer.self_attn.state_dict(), strict=False)
-            mtp_module.cross_attn.load_state_dict(last_layer.self_attn.state_dict(), strict=False)
-            mtp_module.mlp.load_state_dict(last_layer.mlp.state_dict(), strict=False)
+        def _format_key_list(keys, max_items: int = 5) -> str:
+            if not keys:
+                return "[]"
+            shown = keys[:max_items]
+            suffix = "" if len(keys) <= max_items else f"...(+{len(keys) - max_items})"
+            return f"{shown}{suffix}"
+
+        def _log_load(idx: int, name: str, result) -> None:
+            missing = list(result.missing_keys)
+            unexpected = list(result.unexpected_keys)
+            _print(
+                f"init mtp[{idx}] {name}: "
+                f"missing={len(missing)} { _format_key_list(missing) } "
+                f"unexpected={len(unexpected)} { _format_key_list(unexpected) }"
+            )
+
+        for idx, mtp_module in enumerate(model.mtp_modules):
+            res = mtp_module.self_attn.load_state_dict(last_layer.self_attn.state_dict(), strict=False)
+            _log_load(idx, "self_attn", res)
+            res = mtp_module.cross_attn.load_state_dict(last_layer.self_attn.state_dict(), strict=False)
+            _log_load(idx, "cross_attn(from self_attn)", res)
+            res = mtp_module.mlp.load_state_dict(last_layer.mlp.state_dict(), strict=False)
+            _log_load(idx, "mlp", res)
 
 
 def get_parser():
