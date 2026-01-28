@@ -558,11 +558,17 @@ class MyDataset(torch.utils.data.Dataset):
                 # sentence level
                 output_indicator_list = list()
                 output_content_list = list()
+                output_comp_adaptive_num_token = list()
                 for thought in thoughts_list:
                     output_indicator_list.append("abandoned")
                     output_content_list.append(thought + '\n' + self.config.split_token)
                     output_indicator_list.append("compressed-output")
-                    output_content_list.append(self.output_compress_instruction + self.config.get_output_comp_token(return_list=False) + self.config.continue_token)
+                    if self.config.compression_ratio > 0: # 大于0则自适应压缩，原先固定9个token时为-1
+                        output_comp_tokens, num_comp_tokens = self.config.get_adaptive_output_comp_token(tokenizer=self.tokenizer, thought=thought, return_list=False)
+                        output_content_list.append(self.output_compress_instruction + output_comp_tokens + self.config.continue_token)
+                        output_comp_adaptive_num_token.append(num_comp_tokens)
+                    else:
+                        output_content_list.append(self.output_compress_instruction + self.config.get_output_comp_token(return_list=False) + self.config.continue_token)
                 if add_eos:
                     output_indicator_list.append("save")
                     output_content_list.append(self.tokenizer.eos_token)
@@ -582,7 +588,8 @@ class MyDataset(torch.utils.data.Dataset):
                 train_on_input=self.train_on_input,
                 check_consistency=self.check_consistency,
                 recover_mode=True,
-                use_EPL=self.use_EPL
+                use_EPL=self.use_EPL,
+                output_comp_adaptive_num_token=output_comp_adaptive_num_token
             )
 
             self.aug_data_wo_prompt_comp.append(

@@ -69,7 +69,7 @@ eos_token="<|im_end|>"
 # `model_path` is an optional argument
 # if you set the `model_path`, the arguments `ckpt` and `model_tag` will be ignored.
 # see line 1460 of the code in LightThinker/inference.py for more details.
-max_new_tokens=10240
+max_new_tokens=1024
 
 prefix=""
 diagonal="false"

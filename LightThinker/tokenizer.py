@@ -125,7 +125,8 @@ class Tokenizer:
         train_on_input:bool=False,
         check_consistency:bool=False,
         recover_mode:bool=False,
-        use_EPL:bool=False
+        use_EPL:bool=False,
+        output_comp_adaptive_num_token:List[int]=[],
     ) -> Tuple[List[Dict], Dict]:
         # 1. tokenize
         whole_input = ""
@@ -189,6 +190,7 @@ class Tokenizer:
         )
         compression_count = 0
         subtract_compressed_token = False
+        adaptive_index = 0
         for i in range(len(tokenized_label_list)):
             if len(final_item['input_ids']) >= max_length:
                 break
@@ -207,6 +209,9 @@ class Tokenizer:
                         assert structured_input_indicator[i][j+1] in ['compressed-prompt', 'compressed-output']
                         n_comp = n_comp_for_prompt if structured_input_indicator[i][j+1] == 'compressed-prompt' else n_comp_for_output
                         n_continue = n_continue_for_prompt if structured_input_indicator[i][j+1] == 'compressed-prompt' else n_continue_for_output
+                        if len(output_comp_adaptive_num_token) > 0:
+                            n_comp = output_comp_adaptive_num_token[adaptive_index]
+                            adaptive_index+=1
                         assert len(tokenized_input_id_list[i][j+1]) - n_comp - n_continue >= 0
                         # mask for instruction
                         if len(tokenized_input_id_list[i][j+1]) - n_comp - n_continue > 0:
@@ -271,6 +276,7 @@ class Tokenizer:
                         final_item['labels'].append(
                             tokenized_label_list[i][j][k]
                         )
+                # print(self.tokenizer.decode(final_item['input_ids']))
 
         # 4. recover
         # we do not use revover mode
