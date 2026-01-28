@@ -133,17 +133,17 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
-inference_and_evaluate "epl_adaptive_5" "anchor-thought" "inference" ""./configs/LightThinker/qwen/adaptive_v1.json""
+inference_and_evaluate "epl_adaptive_5" "anchor-thought" "inference" "./configs/LightThinker/qwen/adaptive_v1.json"
 
 
-# ==================== 模型2: mtp_aux_cross_attn_config_E_w1e-1_init ====================
-train_model "mtp_aux_cross_attn_config_E_w1e-1_init" "True" "2e-5" "aug-wo-pc" "configs/mtp_aux_cross_attn_config_E_w1e-1_init.json" "v1"
+# ==================== 模型2: mtp_aux_cross_attn_E_w5e-2 ====================
+train_model "mtp_aux_cross_attn_E_w5e-2" "True" "2e-5" "aug-wo-pc" "configs/mtp_aux_cross_attn_E_w5e-2.json" "v1"
 if [ $? -ne 0 ]; then
-    echo "❌ mtp_aux_cross_attn_config_E_w1e-1_init训练失败，退出"
+    echo "❌ mtp_aux_cross_attn_E_w5e-2训练失败，退出"
     exit 1
 fi
 
-inference_and_evaluate "mtp_aux_cross_attn_config_E_w1e-1_init" "anchor-thought" "inference" "./configs/LightThinker/qwen/v1.json"
+inference_and_evaluate "mtp_aux_cross_attn_E_w5e-2" "anchor-thought" "inference" "./configs/LightThinker/qwen/v1.json"
 
 
 echo ""

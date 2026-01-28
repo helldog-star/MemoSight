@@ -24,7 +24,7 @@ CONDA_ENV_NAME="niah"  # Conda环境名称
 # ==================== 推理和评估配置 ====================
 # 设置推理和评估的默认参数
 REPETITION_PENALTY="1.1"  # 重复惩罚系数
-CKPT="2"  # 检查点编号，可以根据实际情况修改
+CKPT="25"  # 检查点编号，可以根据实际情况修改
 DATASETS=("bbh" "gpqa" "gsm8k" "mmlu")  # 要评估的数据集
 
 # 获取脚本所在目录
@@ -127,7 +127,7 @@ inference_and_evaluate() {
 
 
 # ==================== 模型1: mtp_aux_config_E_w1e-1_init ====================
-train_model "mtp_aux_config_E_w1e-1_init" "True" "2e-5" "aug-wo-pc" "configs/mtp_aux_config_E_w1e-1_init.json" "adaptive_v1"
+train_model "mtp_aux_config_E_w1e-1_init" "True" "2e-5" "aug-wo-pc" "None" "adaptive_v1"
 if [ $? -ne 0 ]; then
     echo "❌ mtp_aux_config_E_w1e-1_init训练失败，退出"
     exit 1
