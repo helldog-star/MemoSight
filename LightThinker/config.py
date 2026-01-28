@@ -1,5 +1,6 @@
 
 
+import math
 from typing import *
 from LightThinker.utils import read_json
 
@@ -46,6 +47,7 @@ class Config:
         self.output_comp_token_name_template:str = self.output_cfg['token_name']
         self.output_comp_token_desp_template:str = self.output_cfg['token_desp']
         self.output_meta_compress_step:int = self.output_cfg['meta_compress_step']
+        self.compression_ratio:int = self.output_cfg['compression_ratio']
 
         if self.share:
             assert self.output_comp_token_name_template == self.prompt_comp_token_name_template
@@ -203,6 +205,21 @@ class Config:
 
     def get_output_comp_token(self, return_list:bool=False) -> Union[str, List[str]]:
         return self.output_comp_token_name_list if return_list else "".join(self.output_comp_token_name_list)
+    
+
+    def get_adaptive_output_comp_token(self, tokenizer, thought, return_list:bool=False) -> Union[str, List[str]]:
+        thought_ids = tokenizer.encode_plus(thought,add_special_tokens=False)["input_ids"]
+
+        num_tokens = len(thought_ids)
+
+        num_comp_tokens = max(1, math.ceil(num_tokens / self.compression_ratio))
+        # num_comp_tokens = num_tokens // self.compression_ratio
+        comp_tokens = self.output_comp_token_name_list[:num_comp_tokens]
+
+        if return_list:
+            return comp_tokens
+        else:
+            return "".join(comp_tokens), num_comp_tokens
 
     def get_prompt_comp_token_id(self) -> List[int]:
         assert self.prompt_comp_token_id_list is not None
