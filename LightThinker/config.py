@@ -213,6 +213,8 @@ class Config:
         num_tokens = len(thought_ids)
 
         num_comp_tokens = max(1, math.ceil(num_tokens / self.compression_ratio))
+         # 加上上限，防止 comp token 爆炸
+        num_comp_tokens = min(num_comp_tokens, self.output_comp_n_token)
         # num_comp_tokens = num_tokens // self.compression_ratio
         comp_tokens = self.output_comp_token_name_list[:num_comp_tokens]
 
