@@ -1276,7 +1276,7 @@ def _sentence_level_generate(
         if predicted_token_id == comp_config.split_token_id:
             IS_COMP_MODE = True
             new_input_ids.extend(
-                comp_config.get_output_comp_token_id()
+                comp_config.get_output_comp_token_id(cot_length=int(position_ids[0][0].item()) + 1 - cot_start)
             )
             new_input_ids.append(
                 comp_config.continue_token_id
@@ -1289,7 +1289,7 @@ def _sentence_level_generate(
                     origin_length + 1,  # the last token has not been included yet.
                     0,
                     origin_length + 1,
-                    origin_length + 1 + len(comp_config.get_output_comp_token_id()),
+                    origin_length + 1 + len(comp_config.get_output_comp_token_id(cot_length=int(position_ids[0][0].item()) + 1 - cot_start)),
                     1,
                 ]
                 attention_mask = attn_utils.update_attention_global(
@@ -1303,7 +1303,7 @@ def _sentence_level_generate(
                     origin_length + 1,
                     0,
                     origin_length + 1,
-                    origin_length + 1 + len(comp_config.get_output_comp_token_id()),
+                    origin_length + 1 + len(comp_config.get_output_comp_token_id(cot_length=int(position_ids[0][0].item()) + 1 - cot_start)),
                     1,
                 ]
                 attention_mask = attn_utils.update_attention_local(
@@ -1347,18 +1347,18 @@ def _sentence_level_generate(
             # cot_end - cot_start 是算上<|splitter|>的 cot 长度，也就是 n_abandoned
             # 训练时 <|splitter|> 也是算在 n_abandoned 之内的
             cot_end = int(position_ids[0][0].item()) + 1
-            step = (cot_end - cot_start) / len(comp_config.get_output_comp_token_id())
+            step = (cot_end - cot_start) / len(comp_config.get_output_comp_token_id(cot_length=int(position_ids[0][0].item()) + 1 - cot_start))
             indicator = [
                     cot_start, # cot first token position id
                     cot_end, # <|o_1|> position id
                     step, # 压缩步长
-                    len(comp_config.get_output_comp_token_id()) # 压缩token数量
+                    len(comp_config.get_output_comp_token_id(cot_length=int(position_ids[0][0].item()) + 1 - cot_start)) # 压缩token数量
                 ]
             # 更新cot位置
             # 这里算上 <|continue|>，对应下一段 cot 的 first token position id
-            cot_start = cot_end + 1
             position_ids = token_utils.use_epl_for_compression(position_ids, indicator)
-            use_compression_all_count += len(comp_config.get_output_comp_token_id())
+            use_compression_all_count += len(comp_config.get_output_comp_token_id(cot_length=int(position_ids[0][0].item()) + 1 - cot_start))
+            cot_start = cot_end + 1
             
         if DEBUG:
             if update_attention_method == 'global':
@@ -1416,7 +1416,7 @@ def _sentence_level_generate(
         new_token_counters += 1
 
     token_utils.show_output_input_ids.append(predicted_token_id)
-    # return tokenizer.decode(token_utils._whole_input_ids)
+    print(tokenizer.decode(token_utils._whole_input_ids))
     return tokenizer.decode(token_utils.show_prompt_input_ids), tokenizer.decode(token_utils.show_output_input_ids)
 
 
@@ -2109,7 +2109,7 @@ def main():
     device = 'cuda'
     max_comp_size = 15
     max_prompt_len = 1000
-    max_comp_size = 20
+    max_comp_size = 300
     max_prompt_len = 1100
     dtype = torch.bfloat16
 

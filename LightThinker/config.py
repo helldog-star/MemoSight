@@ -227,8 +227,16 @@ class Config:
         assert self.prompt_comp_token_id_list is not None
         return self.prompt_comp_token_id_list
 
-    def get_output_comp_token_id(self) -> List[int]:
+    def get_output_comp_token_id(self, cot_length:int=None) -> List[int]:
         assert self.output_comp_token_id_list is not None
-        return self.output_comp_token_id_list
+        if self.compression_ratio > 0 and cot_length is not None:
+            num_comp_tokens = max(1, math.ceil(cot_length / self.compression_ratio))
+            # 加上上限，防止 comp token 爆炸
+            num_comp_tokens = min(num_comp_tokens, self.output_comp_n_token)
+            # num_comp_tokens = num_tokens // self.compression_ratio
+            comp_tokens = self.output_comp_token_id_list[:num_comp_tokens]
+            return comp_tokens
+        else:
+            return self.output_comp_token_id_list
     
 

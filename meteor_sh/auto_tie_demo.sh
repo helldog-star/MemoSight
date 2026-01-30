@@ -127,13 +127,13 @@ inference_and_evaluate() {
 
 
 # ==================== 模型1: mtp_aux_config_E_w1e-1_init ====================
-train_model "mtp_aux_config_E_w1e-1_init" "True" "2e-5" "aug-wo-pc" "None" "v1"
+train_model "epl_adaptive_5" "True" "2e-5" "aug-wo-pc" "None" "adaptive_v1"
 if [ $? -ne 0 ]; then
     echo "❌ mtp_aux_config_E_w1e-1_init训练失败，退出"
     exit 1
 fi
 
-inference_and_evaluate "mtp_aux_config_E_w1e-1_init" "anchor-thought" "inference" ""./configs/LightThinker/qwen/adaptive_v1.json""
+# inference_and_evaluate "mtp_aux_config_E_w1e-1_init" "anchor-thought" "inference" ""./configs/LightThinker/qwen/adaptive_v1.json""
 
 # # ==================== 模型2: mtp_aux_cross_attn_config_E_w1e-1_init ====================
 # train_model "mtp_aux_cross_attn_config_E_w1e-1_init" "True" "2e-5" "aug-wo-pc" "configs/mtp_aux_cross_attn_config_E_w1e-1_init.json" "adaptive_v1"
