@@ -3,18 +3,18 @@
 # ==================== 路径配置 ====================
 # 所有路径统一在此设置，便于在不同服务器上运行
 # ROOT_DIR="/zhaorunsong/RRcot"  # 项目根目录
-ROOT_DIR="/mnt/zhaorunsong/lx/RRcot" 
+ROOT_DIR="/home/zhaorunsong.zrs/repo/AutoRRcotv13/RRcot" 
 INFERENCE_ROOT_DIR="${ROOT_DIR}/LightThinker"  # 推理脚本使用的代码根目录
 
 # 输出路径配置
-OUTPUT_BASE_DIR="/mnt/zhaorunsong/lx/rrcot_test"  # 所有输出（训练、推理）的基础目录
+OUTPUT_BASE_DIR="/tmp/hx/rrcot"  # 所有输出（训练、推理）的基础目录
 
 # 模型和Tokenizer路径配置
-TOKENIZER_PATH="/mnt/zhaorunsong/models/Qwen2.5-0.5B"  # Tokenizer路径
-MODEL_PATH="/mnt/zhaorunsong/models/Qwen2.5-0.5B"  # 预训练模型路径
+TOKENIZER_PATH="/tmp/hx/Qwen/Qwen2.5-1.5B-Instruct"  # Tokenizer路径
+MODEL_PATH="/tmp/hx/deepseek-ai/DeepSeek-R1-Distill-Qwen-7B"  # 预训练模型路径
 
 # 训练数据路径配置
-TRAIN_DATA_PATH="/mnt/zhaorunsong/lx/RRcot/data/train/train.jsonl"  # 训练数据路径
+TRAIN_DATA_PATH="/home/zhaorunsong.zrs/repo/RRcot/data/train/train.jsonl"  # 训练数据路径
 
 # Conda环境配置（用于sglang_inference.sh）
 # CONDA_SH_PATH="/mnt/zhaorunsong/anaconda3/etc/profile.d/conda.sh"  # Conda初始化脚本路径
@@ -24,7 +24,7 @@ CONDA_ENV_NAME="niah"  # Conda环境名称
 # ==================== 推理和评估配置 ====================
 # 设置推理和评估的默认参数
 REPETITION_PENALTY="1.1"  # 重复惩罚系数
-CKPT="200"  # 检查点编号，可以根据实际情况修改
+CKPT="1305"  # 检查点编号，可以根据实际情况修改
 DATASETS=("bbh" "gpqa" "gsm8k" "mmlu")  # 要评估的数据集
 
 # 获取脚本所在目录
@@ -124,34 +124,29 @@ inference_and_evaluate() {
     echo "=========================================="
     return 0
 }
-# train_model "mtp_aux_cross_attn_E_w1e-2" "True" "2e-5" "aug-wo-pc" "configs/mtp_aux_cross_attn_E_w1e-2.json" "v1"
-# if [ $? -ne 0 ]; then
-#     echo "❌ mtp_aux_cross_attn_E_w1e-2训练失败，退出"
-#     exit 1
-# fi
+
+
+# ==================== 模型1: mtp_aux_cross_attn_E_w1e-2 ====================
+train_model "mtp_aux_cross_attn_E_w1e-2" "True" "2e-5" "aug-wo-pc" "configs/mtp_aux_cross_attn_E_w1e-2.json" "v1"
+if [ $? -ne 0 ]; then
+    echo "❌ mtp_aux_cross_attn_E_w1e-2训练失败，退出"
+    exit 1
+fi
 
 inference_and_evaluate "mtp_aux_cross_attn_E_w1e-2" "anchor-thought" "inference" "./configs/LightThinker/qwen/v1.json"
 
-# ==================== 模型1: mtp_aux_config_E_w1e-1_init ====================
-# train_model "epl_adaptive_5" "True" "2e-5" "aug-wo-pc" "None" "adaptive_v1"
-# if [ $? -ne 0 ]; then
-#     echo "❌ mtp_aux_config_E_w1e-1_init训练失败，退出"
-#     exit 1
-# fi
 
-# inference_and_evaluate "epl_adaptive_5" "anchor-thought" "inference" ""./configs/LightThinker/qwen/adaptive_v1.json""
+# ==================== 模型2: mtp_aux_cross_attn_E_w5e-2 ====================
+train_model "mtp_aux_cross_attn_E_w5e-2" "True" "2e-5" "aug-wo-pc" "configs/mtp_aux_cross_attn_E_w5e-2.json" "v1"
+if [ $? -ne 0 ]; then
+    echo "❌ mtp_aux_cross_attn_E_w5e-2训练失败，退出"
+    exit 1
+fi
 
-# # ==================== 模型2: mtp_aux_cross_attn_config_E_w1e-1_init ====================
-# train_model "mtp_aux_cross_attn_config_E_w1e-1_init" "True" "2e-5" "aug-wo-pc" "configs/mtp_aux_cross_attn_config_E_w1e-1_init.json" "v1"
-# if [ $? -ne 0 ]; then
-#     echo "❌ mtp_aux_cross_attn_config_E_w1e-1_init训练失败，退出"
-#     exit 1
-# fi
-
-# inference_and_evaluate "mtp_aux_cross_attn_config_E_w1e-1_init" "anchor-thought" "inference" "./configs/LightThinker/qwen/adaptive_v1.json"
+inference_and_evaluate "mtp_aux_cross_attn_E_w5e-2" "anchor-thought" "inference" "./configs/LightThinker/qwen/v1.json"
 
 
-# echo ""
-# echo "=========================================="
-# echo "      ✅ 所有模型训练、推理和评估完成     "
-# echo "=========================================="
+echo ""
+echo "=========================================="
+echo "      ✅ 所有模型训练、推理和评估完成     "
+echo "=========================================="

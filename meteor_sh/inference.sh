@@ -69,7 +69,7 @@ eos_token="<|im_end|>"
 # `model_path` is an optional argument
 # if you set the `model_path`, the arguments `ckpt` and `model_tag` will be ignored.
 # see line 1460 of the code in LightThinker/inference.py for more details.
-max_new_tokens=1024
+max_new_tokens=20
 
 prefix=""
 diagonal="false"
@@ -106,7 +106,7 @@ echo "model_path: ${model_path}"
 echo "Inference model: ${model_tag}..."
 
 #用于设置总共几张卡和开多少进程
-target_gpus=( 0 1 2 3 4 5 6 7)
+target_gpus=( 0 1 2 3)
 process_per_gpu=4
 gpu_count=${#target_gpus[@]}
 # 自动计算总切片数 (假如用了2张卡，每张3进程，split_size就是6)

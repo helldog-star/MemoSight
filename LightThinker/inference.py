@@ -1265,6 +1265,7 @@ def _sentence_level_generate(
     debug_count = 0
     cot_start = global_start
     cot_end = 0
+    van_cot_start = global_start
     assert local_start == kv_utils.get_cache()._seen_tokens, \
         f"{local_start} == {kv_utils.get_cache()._seen_tokens}"
     while predicted_token_id != eos_token_id and new_token_counters < max_new_tokens:
@@ -1275,8 +1276,12 @@ def _sentence_level_generate(
         # 1. construct attention_mask
         if predicted_token_id == comp_config.split_token_id:
             IS_COMP_MODE = True
+            if use_EPL:
+                cot_length = int(position_ids[0][0].item()) + 2 - cot_start
+            else:
+                cot_length = int(position_ids[0][0].item()) + 2 - van_cot_start
             new_input_ids.extend(
-                comp_config.get_output_comp_token_id(cot_length=int(position_ids[0][0].item()) + 1 - cot_start)
+                comp_config.get_output_comp_token_id(cot_length=cot_length)
             )
             new_input_ids.append(
                 comp_config.continue_token_id
@@ -1289,7 +1294,7 @@ def _sentence_level_generate(
                     origin_length + 1,  # the last token has not been included yet.
                     0,
                     origin_length + 1,
-                    origin_length + 1 + len(comp_config.get_output_comp_token_id(cot_length=int(position_ids[0][0].item()) + 1 - cot_start)),
+                    origin_length + 1 + len(comp_config.get_output_comp_token_id(cot_length=cot_length)),
                     1,
                 ]
                 attention_mask = attn_utils.update_attention_global(
@@ -1303,7 +1308,7 @@ def _sentence_level_generate(
                     origin_length + 1,
                     0,
                     origin_length + 1,
-                    origin_length + 1 + len(comp_config.get_output_comp_token_id(cot_length=int(position_ids[0][0].item()) + 1 - cot_start)),
+                    origin_length + 1 + len(comp_config.get_output_comp_token_id(cot_length=cot_length)),
                     1,
                 ]
                 attention_mask = attn_utils.update_attention_local(
@@ -1336,7 +1341,8 @@ def _sentence_level_generate(
 
         # ......The code is beautifully repeated......
         input_ids, position_ids = token_utils.set_input_ids(new_input_ids, return_tensors=True)
-
+        if IS_COMP_MODE:
+            van_cot_start = int(position_ids[0][-1].item()) + 1
         if use_EPL:
             position_ids = position_ids - use_compression_all_count
 
@@ -1359,7 +1365,6 @@ def _sentence_level_generate(
             position_ids = token_utils.use_epl_for_compression(position_ids, indicator)
             use_compression_all_count += len(comp_config.get_output_comp_token_id(cot_length=int(position_ids[0][0].item()) + 1 - cot_start))
             cot_start = cot_end + 1
-            
         if DEBUG:
             if update_attention_method == 'global':
                 DebugUtils.show_global_attention(
@@ -1416,7 +1421,6 @@ def _sentence_level_generate(
         new_token_counters += 1
 
     token_utils.show_output_input_ids.append(predicted_token_id)
-    print(tokenizer.decode(token_utils._whole_input_ids))
     return tokenizer.decode(token_utils.show_prompt_input_ids), tokenizer.decode(token_utils.show_output_input_ids)
 
 
