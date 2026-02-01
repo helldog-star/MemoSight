@@ -282,6 +282,9 @@ def get_model_and_tokenizer(
             mtp_params = json.load(f)
         _print(f"auxiliary mtp config={mtp_params}")
 
+        if comp_config.forzen_model_train_mtp:
+            mtp_params["forzen_model_train_mtp"] = True
+
         model_config.update(mtp_params)
         model = model_class.from_pretrained(
             args.model_path, config=model_config, torch_dtype=torch.bfloat16, trust_remote_code=True
