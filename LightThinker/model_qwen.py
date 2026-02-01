@@ -1393,6 +1393,7 @@ class Qwen2ForCausalLM(Qwen2PreTrainedModel, GenerationMixin):
         self.mtp_mode = getattr(config, "mtp_mode", "normal")
         self.mtp_lambda = getattr(config, "mtp_lambda", 1.0)
         self.stop_cot_gradient = getattr(config, "stop_cot_gradient", False)
+        self.forzen_model_train_mtp = getattr(config, "forzen_model_train_mtp", False)
         # if self.stop_cot_gradient:
         #     assert self.mtp_mode in ["normal", "cross-attention", "cross-attention-full"],"stop_cot_gradient only works in cross-attention mode"
 
@@ -1548,9 +1549,13 @@ class Qwen2ForCausalLM(Qwen2PreTrainedModel, GenerationMixin):
         if labels is not None:
             loss = self.loss_function(logits, labels, self.vocab_size, **loss_kwargs)
 
-            lm_loss = loss
-            self._last_lm_loss = lm_loss.detach().item()
-            self._last_mtp_loss = 0.0  # 初始化为0
+            if self.forzen_model_train_mtp:
+                self._last_lm_loss = torch.zeros((), device=logits.device, dtype=logits.dtype)
+                self._last_mtp_loss = 0.0  # 初始化为0
+            else:
+                lm_loss = loss
+                self._last_lm_loss = lm_loss.detach().item()
+                self._last_mtp_loss = 0.0  # 初始化为0
 
             # MTP aux loss
             if self.mtp_depth > 0:
@@ -1782,7 +1787,11 @@ class Qwen2ForCausalLM(Qwen2PreTrainedModel, GenerationMixin):
                         mtp_loss = self.mtp_lambda * total_mtp_loss / self.mtp_depth
                     else:
                         mtp_loss = self.mtp_lambda * total_mtp_loss
-                    loss = lm_loss + mtp_loss
+
+                    if self.forzen_model_train_mtp:
+                        loss = mtp_loss
+                    else:
+                        loss = lm_loss + mtp_loss
                     
                     self._last_mtp_loss = mtp_loss.detach().item()
         

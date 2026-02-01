@@ -188,6 +188,21 @@ def init_mtp_from_last_layer(model) -> None:
             _log_load(idx, "mlp", res)
 
 
+def freeze_except_mtp(model):
+    for name, param in model.named_parameters():
+        param.requires_grad = False
+
+    for name, param in model.named_parameters():
+        if "mtp" in name:
+            param.requires_grad = True
+
+    # sanity check
+    print("Trainable parameters:")
+    for n, p in model.named_parameters():
+        if p.requires_grad:
+            print(n)
+
+
 def get_parser():
     parser = argparse.ArgumentParser()
     parser.add_argument('--local_rank', type=int, help="just used for deepspeed.")
@@ -232,6 +247,7 @@ def get_model_and_tokenizer(
     args,
     comp_config:Config
 ) -> Tuple[Union[Qwen2ForCausalLM, LlamaForCausalLM], Tokenizer]:
+
     special_token_list:List[str] = list()
     special_token_desp_dict = dict()
     tokenizer: Tokenizer = Tokenizer(
@@ -265,11 +281,13 @@ def get_model_and_tokenizer(
         with open(args.aux_config, "r", encoding='utf-8') as f:
             mtp_params = json.load(f)
         _print(f"auxiliary mtp config={mtp_params}")
+
         model_config.update(mtp_params)
         model = model_class.from_pretrained(
             args.model_path, config=model_config, torch_dtype=torch.bfloat16, trust_remote_code=True
         )
-
+        if comp_config.forzen_model_train_mtp:
+            freeze_except_mtp(model)
         if getattr(model_config, "init", False):
             _print(f"initialize mtp...")
             init_mtp_from_last_layer(model)
@@ -380,6 +398,9 @@ def main():
             print(f"发现检查点，将从 {resume_from_checkpoint} 恢复训练")
 
     comp_config = Config.from_file(config_path=args.compress_config)
+    
+    if comp_config.forzen_model_train_mtp:
+        args.model_path = resume_from_checkpoint
     model, tokenizer,hook_handle = get_model_and_tokenizer(
         args, comp_config
     )
@@ -426,7 +447,7 @@ def main():
         output_dir=args.output_dir,
         save_only_model=False,       # don't save the global_steps
         load_best_model_at_end=False,
-        deepspeed=args.deepspeed,
+        # deepspeed=args.deepspeed,
         save_total_limit=1,
         report_to="tensorboard",
         per_device_train_batch_size=args.micro_batch_size,
@@ -451,8 +472,9 @@ def main():
         trainer.add_callback(tb_callback)
 
     # 在加载检查点时使用上下文管理器
-    if resume_from_checkpoint:
-           trainer.train(resume_from_checkpoint=resume_from_checkpoint)
+    if resume_from_checkpoint and not comp_config.forzen_model_train_mtp:
+        trainer.train(resume_from_checkpoint=resume_from_checkpoint)
+
     else:
         trainer.train()
 

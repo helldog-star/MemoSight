@@ -48,6 +48,7 @@ class Config:
         self.output_comp_token_desp_template:str = self.output_cfg['token_desp']
         self.output_meta_compress_step:int = self.output_cfg['meta_compress_step']
         self.compression_ratio:int = self.output_cfg['compression_ratio']
+        self.forzen_model_train_mtp:bool = self.output_cfg['forzen_model_train_mtp']
 
         if self.share:
             assert self.output_comp_token_name_template == self.prompt_comp_token_name_template
