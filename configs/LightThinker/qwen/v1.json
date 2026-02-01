@@ -21,6 +21,7 @@
         "token_name": "<|o_{t_id}|>",
         "token_desp": "compress output {t_id}",
         "meta_compress_step": 1,
-        "compression_ratio": -1
+        "compression_ratio": -1,
+        "forzen_model_train_mtp": false
     }
 }
