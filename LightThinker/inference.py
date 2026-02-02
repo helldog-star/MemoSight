@@ -1353,17 +1353,17 @@ def _sentence_level_generate(
             # cot_end - cot_start 是算上<|splitter|>的 cot 长度，也就是 n_abandoned
             # 训练时 <|splitter|> 也是算在 n_abandoned 之内的
             cot_end = int(position_ids[0][0].item()) + 1
-            step = (cot_end - cot_start) / len(comp_config.get_output_comp_token_id(cot_length=int(position_ids[0][0].item()) + 1 - cot_start))
+            step = (cot_end - cot_start) / len(comp_config.get_output_comp_token_id(cot_length=(cot_end - cot_start)))
             indicator = [
                     cot_start, # cot first token position id
                     cot_end, # <|o_1|> position id
                     step, # 压缩步长
-                    len(comp_config.get_output_comp_token_id(cot_length=int(position_ids[0][0].item()) + 1 - cot_start)) # 压缩token数量
+                    len(comp_config.get_output_comp_token_id(cot_length=(cot_end - cot_start))) # 压缩token数量
                 ]
             # 更新cot位置
             # 这里算上 <|continue|>，对应下一段 cot 的 first token position id
             position_ids = token_utils.use_epl_for_compression(position_ids, indicator)
-            use_compression_all_count += len(comp_config.get_output_comp_token_id(cot_length=int(position_ids[0][0].item()) + 1 - cot_start))
+            use_compression_all_count += len(comp_config.get_output_comp_token_id(cot_length=(cot_end - cot_start)))
             cot_start = cot_end + 1
         if DEBUG:
             if update_attention_method == 'global':
@@ -1460,6 +1460,7 @@ def _sentence_mtp_level_generate(
     debug_count = 0
     cot_start = global_start
     cot_end = 0
+    van_cot_start = global_start
     stack_mtp = [predicted_token_id]
     new_input_ids = [predicted_token_id]
     assert local_start == kv_utils.get_cache()._seen_tokens, \
@@ -1478,8 +1479,14 @@ def _sentence_mtp_level_generate(
             # 1. construct attention_mask
             if new_input_ids[0] == comp_config.split_token_id:
                 IS_COMP_MODE = True
+
+                if use_EPL:
+                    cot_length = int(position_ids[0][0].item()) + 2 - cot_start
+                else:
+                    cot_length = int(position_ids[0][0].item()) + 2 - van_cot_start
+
                 new_input_ids.extend(
-                    comp_config.get_output_comp_token_id()
+                    comp_config.get_output_comp_token_id(cot_length=cot_length)
                 )
                 new_input_ids.append(
                     comp_config.continue_token_id
@@ -1492,7 +1499,7 @@ def _sentence_mtp_level_generate(
                         origin_length + 1,  # the last token has not been included yet.
                         0,
                         origin_length + 1,
-                        origin_length + 1 + len(comp_config.get_output_comp_token_id()),
+                        origin_length + 1 + len(comp_config.get_output_comp_token_id(cot_length=cot_length)),
                         1,
                     ]
                     attention_mask = attn_utils.update_attention_global(
@@ -1506,7 +1513,7 @@ def _sentence_mtp_level_generate(
                         origin_length + 1,
                         0,
                         origin_length + 1,
-                        origin_length + 1 + len(comp_config.get_output_comp_token_id()),
+                        origin_length + 1 + len(comp_config.get_output_comp_token_id(cot_length=cot_length)),
                         1,
                     ]
                     attention_mask = attn_utils.update_attention_local(
@@ -1539,6 +1546,8 @@ def _sentence_mtp_level_generate(
 
             # ......The code is beautifully repeated......
             input_ids, position_ids = token_utils.set_input_ids(new_input_ids, return_tensors=True)
+            if IS_COMP_MODE:
+                van_cot_start = int(position_ids[0][-1].item()) + 1
             if use_EPL:
                 position_ids = position_ids - use_compression_all_count
 
@@ -1549,18 +1558,18 @@ def _sentence_mtp_level_generate(
                 # cot_end - cot_start 是算上<|splitter|>的 cot 长度，也就是 n_abandoned
                 # 训练时 <|splitter|> 也是算在 n_abandoned 之内的
                 cot_end = int(position_ids[0][0].item()) + 1
-                step = (cot_end - cot_start) / len(comp_config.get_output_comp_token_id())
+                step = (cot_end - cot_start) / len(comp_config.get_output_comp_token_id(cot_length=(cot_end - cot_start)))
                 indicator = [
                         cot_start, # cot first token position id
                         cot_end, # <|o_1|> position id
                         step, # 压缩步长
-                        len(comp_config.get_output_comp_token_id()) # 压缩token数量
+                        len(comp_config.get_output_comp_token_id(cot_length=(cot_end - cot_start))) # 压缩token数量
                     ]
                 # 更新cot位置
                 # 这里算上 <|continue|>，对应下一段 cot 的 first token position id
-                cot_start = cot_end + 1
                 position_ids = token_utils.use_epl_for_compression(position_ids, indicator)
-                use_compression_all_count += len(comp_config.get_output_comp_token_id())
+                use_compression_all_count += len(comp_config.get_output_comp_token_id(cot_length=(cot_end - cot_start)))
+                cot_start = cot_end + 1
             
             if DEBUG:
                 if update_attention_method == 'global':
