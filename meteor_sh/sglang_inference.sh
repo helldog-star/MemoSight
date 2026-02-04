@@ -42,7 +42,7 @@ fi
 
 # 根据传入的超参数自动组合路径
 output_path="${output_base_dir}/${model_tag}"
-model_path="/mnt/zhaorunsong/models/Qwen2.5-0.5B"
+model_path="/mnt/jinbo/RLRM/model/deepseek-ai/DeepSeek-R1-Distill-Qwen-7B"
 
 # 检查模型路径是否存在
 if [ ! -d "$model_path" ]; then
@@ -69,7 +69,7 @@ echo "output_dir: ${output_dir}"
 echo "model_path: ${model_path}"
 echo "Inference model: ${model_tag} using sglang..."
 
-CUDA_VISIBLE_DEVICES=0,1 python "${root_dir}/sglang_inference.py" \
+CUDA_VISIBLE_DEVICES=0,1,2,3 python "${root_dir}/sglang_inference.py" \
   --model_path $model_path \
   --datasets $datasets \
   --batch_size $batch_size \
