@@ -42,7 +42,7 @@ fi
 
 # 根据传入的超参数自动组合路径
 output_path="${output_base_dir}/${model_tag}"
-model_path="${output_path}/train/checkpoint-${ckpt}"
+model_path="/mnt/zhaorunsong/models/Qwen2.5-0.5B"
 
 # 检查模型路径是否存在
 if [ ! -d "$model_path" ]; then

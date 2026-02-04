@@ -27,7 +27,7 @@ tokenizer_path="$6"
 compress_config="$7"
 
 # 根据model_tag自动调整use_EPL：vanilla和lightthinker为false，其余为true
-if [ "$model_tag" = "vanilla" ] || [ "$model_tag" = "lightthinker" ]; then
+if [ "$model_tag" = "vanilla" ] || [ "$model_tag" = "lightthinker" ] || [ "$model_tag" = "distill-r1-7b" ]; then
     use_EPL="false"
 else
     use_EPL="true"

@@ -403,7 +403,7 @@ def main():
     comp_config = Config.from_file(config_path=args.compress_config)
     
     if comp_config.forzen_model_train_mtp:
-        args.model_path = resume_from_checkpoint
+        args.model_path = resume_from_checkpoint if resume_from_checkpoint is not None else args.model_path
 
     model, tokenizer,hook_handle = get_model_and_tokenizer(
         args, comp_config
