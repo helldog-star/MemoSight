@@ -49,6 +49,7 @@ class Config:
         self.output_meta_compress_step:int = self.output_cfg['meta_compress_step']
         self.compression_ratio:int = self.output_cfg['compression_ratio']
         self.forzen_model_train_mtp:bool = self.output_cfg['forzen_model_train_mtp']
+        self.share_compression_token:bool = self.output_cfg['share_compression_token']
 
         if self.share:
             assert self.output_comp_token_name_template == self.prompt_comp_token_name_template
@@ -217,7 +218,10 @@ class Config:
          # 加上上限，防止 comp token 爆炸
         num_comp_tokens = min(num_comp_tokens, self.output_comp_n_token)
         # num_comp_tokens = num_tokens // self.compression_ratio
-        comp_tokens = self.output_comp_token_name_list[:num_comp_tokens]
+        if self.share_compression_token:
+            comp_tokens = [self.output_comp_token_name_list[0]] * num_comp_tokens
+        else:
+            comp_tokens = self.output_comp_token_name_list[:num_comp_tokens]
 
         if return_list:
             return comp_tokens
@@ -235,7 +239,10 @@ class Config:
             # 加上上限，防止 comp token 爆炸
             num_comp_tokens = min(num_comp_tokens, self.output_comp_n_token)
             # num_comp_tokens = num_tokens // self.compression_ratio
-            comp_tokens = self.output_comp_token_id_list[:num_comp_tokens]
+            if self.share_compression_token:
+                comp_tokens = [self.output_comp_token_id_list[0]] * num_comp_tokens
+            else:
+                comp_tokens = self.output_comp_token_id_list[:num_comp_tokens]
             return comp_tokens
         else:
             return self.output_comp_token_id_list
