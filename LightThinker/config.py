@@ -215,12 +215,12 @@ class Config:
         num_tokens = len(thought_ids)
 
         num_comp_tokens = max(1, math.ceil(num_tokens / self.compression_ratio))
-         # 加上上限，防止 comp token 爆炸
-        num_comp_tokens = min(num_comp_tokens, self.output_comp_n_token)
         # num_comp_tokens = num_tokens // self.compression_ratio
         if self.share_compression_token:
             comp_tokens = [self.output_comp_token_name_list[0]] * num_comp_tokens
         else:
+            # 加上上限，防止 comp token 爆炸
+            num_comp_tokens = min(num_comp_tokens, self.output_comp_n_token)
             comp_tokens = self.output_comp_token_name_list[:num_comp_tokens]
 
         if return_list:
@@ -236,12 +236,12 @@ class Config:
         assert self.output_comp_token_id_list is not None
         if self.compression_ratio > 0 and cot_length is not None:
             num_comp_tokens = max(1, math.ceil(cot_length / self.compression_ratio))
-            # 加上上限，防止 comp token 爆炸
-            num_comp_tokens = min(num_comp_tokens, self.output_comp_n_token)
             # num_comp_tokens = num_tokens // self.compression_ratio
             if self.share_compression_token:
                 comp_tokens = [self.output_comp_token_id_list[0]] * num_comp_tokens
             else:
+                # 加上上限，防止 comp token 爆炸
+                num_comp_tokens = min(num_comp_tokens, self.output_comp_n_token)
                 comp_tokens = self.output_comp_token_id_list[:num_comp_tokens]
             return comp_tokens
         else:
