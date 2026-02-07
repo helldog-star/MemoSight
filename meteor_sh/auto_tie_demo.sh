@@ -14,7 +14,7 @@ TOKENIZER_PATH="/mnt/zhaorunsong/models/Qwen2.5-0.5B"  # Tokenizer路径
 MODEL_PATH="/mnt/zhaorunsong/models/Qwen2.5-0.5B"  # 预训练模型路径
 
 # 训练数据路径配置
-TRAIN_DATA_PATH="/mnt/zhaorunsong/lx/RRcot/data/train/train.jsonl"  # 训练数据路径
+TRAIN_DATA_PATH="/mnt/zhaorunsong/lx/RRcot/data/train_test.jsonl"  # 训练数据路径
 
 # Conda环境配置（用于sglang_inference.sh）
 CONDA_SH_PATH="/mnt/zhaorunsong/anaconda3/etc/profile.d/conda.sh"  # Conda初始化脚本路径
@@ -126,17 +126,17 @@ inference_and_evaluate() {
 }
 
 # ==================== 模型1: epl_adaptive_forzen_mtp_aux_cross_attn_E_w1e-2 ====================
-# train_model "epl_adaptive_forzen_mtp_aux_cross_attn_E_w1e-2" "False" "1e-5" "normal" "configs/epl_adaptive_forzen_mtp_aux_cross_attn_E_w1e-2.json" "adaptive_v1"
-# if [ $? -ne 0 ]; then
-#     echo "❌ epl_adaptive_forzen_mtp_aux_cross_attn_E_w1e-2训练失败，退出"
-#     exit 1
-# fi
-
-train_model "epl_adaptive_forzen_mtp_aux_cross_attn_E_w1e-2" "True" "2e-5" "aug-wo-pc" "configs/epl_adaptive_forzen_mtp_aux_cross_attn_E_w1e-2.json" "adaptive_v1"
+train_model "epl_adaptive_forzen_mtp_aux_cross_attn_E_w1e-2" "False" "1e-5" "normal" "configs/epl_adaptive_forzen_mtp_aux_cross_attn_E_w1e-2.json" "adaptive_v1"
 if [ $? -ne 0 ]; then
     echo "❌ epl_adaptive_forzen_mtp_aux_cross_attn_E_w1e-2训练失败，退出"
     exit 1
 fi
+
+# train_model "epl_adaptive_forzen_mtp_aux_cross_attn_E_w1e-2" "True" "2e-5" "aug-wo-pc" "configs/epl_adaptive_forzen_mtp_aux_cross_attn_E_w1e-2.json" "adaptive_v1"
+# if [ $? -ne 0 ]; then
+#     echo "❌ epl_adaptive_forzen_mtp_aux_cross_attn_E_w1e-2训练失败，退出"
+#     exit 1
+# fi
 # inference_and_evaluate "distill-r1-7b" "normal" "sglang_inference"
 # 1. 改了训练数据，记得把distill -> train
 # 2. 训练数据脚本 Fasle->True   1e-5 -> 2e-5   normal -> aug-wo-pc
