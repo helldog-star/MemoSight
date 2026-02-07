@@ -10,19 +10,19 @@
         "save_template": true,
         "level": "sentence",
         "step": 1,
-        "n_token": 1,
+        "n_token": 300,
         "token_name": "<|o_{t_id}|>",
         "token_desp": "compress output {t_id}"
     },
     "output": {
         "level": "sentence",
         "step":1 ,
-        "n_token": 1,
+        "n_token": 300,
         "token_name": "<|o_{t_id}|>",
         "token_desp": "compress output {t_id}",
         "meta_compress_step": 1,
         "compression_ratio": 5,
-        "forzen_model_train_mtp": false,
-        "share_compression_token": true
+        "forzen_model_train_mtp": true,
+        "share_compression_token": false
     }
 }
