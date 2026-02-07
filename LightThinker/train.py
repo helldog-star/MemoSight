@@ -33,7 +33,7 @@ if not torch.distributed.is_initialized():
         dist_backend="nccl",
         timeout=timedelta(minutes=120)
     )
-    
+
 from config import Config
 from LightThinker.utils import _print, IGNORE_LABEL_ID, str2bool
 from tokenizer import Tokenizer
@@ -403,7 +403,7 @@ def main():
 
     comp_config = Config.from_file(config_path=args.compress_config)
 
-    # resume_from_checkpoint=None
+    resume_from_checkpoint=None
 
     if comp_config.forzen_model_train_mtp:
         args.model_path = resume_from_checkpoint if resume_from_checkpoint is not None else args.model_path
@@ -412,18 +412,18 @@ def main():
         args, comp_config
     )
 
-    # from safetensors.torch import load_file
-    # state_dict = load_file("/tmp/hx/rrcot/epl_adaptive_forzen_mtp_aux_cross_attn_E_w1e-2/train/checkpoint-1305/model.safetensors")
-    # # 如果模型是 DataParallel 或 DDP，需要去掉 prefix
-    # # 例如 "module." 前缀
-    # from collections import OrderedDict
-    # new_state_dict = OrderedDict()
-    # for k, v in state_dict.items():
-    #     if k.startswith("module."):
-    #         k = k[len("module.") :]
-    #     new_state_dict[k] = v
-    # # 加载权重
-    # model.load_state_dict(new_state_dict, strict=False)
+    from safetensors.torch import load_file
+    state_dict = load_file("/tmp/hx/rrcot/epl_adaptive_forzen_mtp_aux_cross_attn_E_w1e-2/train/checkpoint-1305/model.safetensors")
+    # 如果模型是 DataParallel 或 DDP，需要去掉 prefix
+    # 例如 "module." 前缀
+    from collections import OrderedDict
+    new_state_dict = OrderedDict()
+    for k, v in state_dict.items():
+        if k.startswith("module."):
+            k = k[len("module.") :]
+        new_state_dict[k] = v
+    # 加载权重
+    model.load_state_dict(new_state_dict, strict=False)
 
     sample_config:Dict = dict(
         mode=args.mode,
