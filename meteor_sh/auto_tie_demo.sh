@@ -14,7 +14,7 @@ TOKENIZER_PATH="/mnt/zhaorunsong/models/Qwen2.5-0.5B"  # Tokenizer路径
 MODEL_PATH="/mnt/zhaorunsong/models/Qwen2.5-0.5B"  # 预训练模型路径
 
 # 训练数据路径配置
-TRAIN_DATA_PATH="/mnt/zhaorunsong/lx/RRcot/data/train_test.jsonl"  # 训练数据路径
+TRAIN_DATA_PATH="/mnt/zhaorunsong/lx/RRcot/data/train/distill.jsonl"  # 训练数据路径
 
 # Conda环境配置（用于sglang_inference.sh）
 CONDA_SH_PATH="/mnt/zhaorunsong/anaconda3/etc/profile.d/conda.sh"  # Conda初始化脚本路径
