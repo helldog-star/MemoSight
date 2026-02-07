@@ -1559,13 +1559,20 @@ class Qwen2ForCausalLM(Qwen2PreTrainedModel, GenerationMixin):
 
             # MTP aux loss
             if self.mtp_depth > 0:
+                if position_ids is None:
+                    batch_size, seq_len = hidden_states.shape[:2]
+                    position_ids = torch.arange(
+                        seq_len,
+                        dtype=torch.long,
+                        device=hidden_states.device
+                    )
+                    position_ids = position_ids.unsqueeze(0).expand(batch_size, -1)
 
-                total_mtp_loss = 0
                 if self.mtp_module_work_layer == -1:
                     current_hidden = outputs.hidden_states[-1]
                 else:
                     current_hidden = outputs.hidden_states[self.mtp_module_work_layer]
-                
+                total_mtp_loss = torch.tensor(0.0, device=current_hidden.device, dtype=current_hidden.dtype)
                 position_embeddings = self.model.rotary_emb(hidden_states, position_ids) # 计算
                 
                 # for cross-attention MTP

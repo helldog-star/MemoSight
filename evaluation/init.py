@@ -5,7 +5,7 @@ from tqdm import tqdm
 
 import sys
 sys.path.append('../LightThinker')
-from dataset_reader import GPQAReader, Reader, MMLUReader, BBHReader, GSM8KReader
+from dataset_reader import DISTILLReader, GPQAReader, Reader, MMLUReader, BBHReader, GSM8KReader
 import os
 
 def bbh():
@@ -144,7 +144,8 @@ if __name__ == '__main__':
         (GPQAReader(), "gpqa"),
         (MMLUReader(), "mmlu"),
         (BBHReader(), "bbh"),
-        (GSM8KReader(), "gsm8k")
+        (GSM8KReader(), "gsm8k"),
+        (DISTILLReader(), "distill")
     ]
 
     for reader, name in reader_map_list:
