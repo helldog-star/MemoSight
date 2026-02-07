@@ -14,7 +14,7 @@ TOKENIZER_PATH="/mnt/zhaorunsong/models/Qwen2.5-0.5B"  # Tokenizer路径
 MODEL_PATH="/mnt/zhaorunsong/models/Qwen2.5-0.5B"  # 预训练模型路径
 
 # 训练数据路径配置
-TRAIN_DATA_PATH="/mnt/zhaorunsong/lx/RRcot/data/train/train.jsonl"  # 训练数据路径
+TRAIN_DATA_PATH="/mnt/zhaorunsong/lx/RRcot/data/train.jsonl"  # 训练数据路径
 
 # Conda环境配置（用于sglang_inference.sh）
 CONDA_SH_PATH="/mnt/zhaorunsong/anaconda3/etc/profile.d/conda.sh"  # Conda初始化脚本路径
@@ -132,7 +132,7 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
-inference_and_evaluate "epl_adaptive_share_comp_mtp_aux_cross_attn_E_w1e-2" "anchor-thought" "inference" "./configs/LightThinker/qwen/adaptive_v1.json"
+# inference_and_evaluate "distill-r1-7b" "normal" "sglang_inference"
 
 
 # echo ""

@@ -9,6 +9,7 @@ DATASET_PATH = dict(
     bbh="data/eval/bbh.json",
     gpqa="data/eval/gpqa.json",
     gsm8k="data/eval/gsm8k.json",
+    distill="data/eval/distill.json",
 )
 
 # DATASET_PATH = dict(
@@ -321,6 +322,77 @@ class GPQAReader(Reader):
         }
         """
         self.meta_db = read_json(GPQAReader.file_path)
+        self.data_list:List = list()
+        for key in self.meta_db:
+            for item in self.meta_db[key]:
+                self.data_list.append(item)
+
+    def get_prompt(self, idx:int) -> str:
+        return "Return your final response within \\boxed{}. " + self.data_list[idx]['question']
+    
+    def get_prompt_list(self, idx:int) -> List[str]:
+        return ["Return your final response within \\boxed{}."] + self.data_list[idx]['question_list']
+
+    def compare_answer(self, model_answer:str, gt_answer:str, idx:int) -> Tuple[bool, str]:
+        if model_answer == "error":
+            left_part = model_answer
+            right_part = gt_answer
+            return False, f"`{left_part}` <=> `{right_part}`"
+        if model_answer[0].lower() in ['a', 'b', 'c', 'd']:
+            left_part = model_answer[0].lower()
+            right_part = gt_answer.lower()
+            return left_part == right_part, f"`{left_part}` <=> `{right_part}`"
+        else:
+            offset = ord(gt_answer)-ord('A')
+            complete_answer = f"{gt_answer}. {self.data_list[idx]['choices_list'][offset]}"
+            left_part = model_answer.lower().strip()
+            right_part = complete_answer.lower().strip()
+            return left_part == right_part, f"`{left_part}` <=> `{right_part}`"
+    
+    def get_answer(self, idx: int) -> str:
+        return str(self.data_list[idx]['answer'])
+
+    def get_system_prompt(self) -> str:
+        return "Your role as an assistant involves thoroughly exploring questions through a systematic long thinking process before providing the final precise and accurate solutions. This requires engaging in a comprehensive cycle of analysis, summarizing, exploration, reassessment, reflection, backtracing, and iteration to develop well-considered thinking process. Please structure your response into two main sections: Thought and Solution. In the Thought section, detail your reasoning process using the specified format: <|begin_of_thought|> {thought with steps separated with '\\n\\n'} <|end_of_thought|> Each step should include detailed considerations such as analisying questions, summarizing relevant findings, brainstorming new ideas, verifying the accuracy of the current steps, refining any errors, and revisiting previous steps. In the Solution section, based on various attempts, explorations, and reflections from the Thought section, systematically present the final solution that you deem correct. The solution should remain a logical, accurate, concise expression style and detail necessary step needed to reach the conclusion, formatted as follows: <|begin_of_solution|> {final formatted, precise, and clear solution} <|end_of_solution|> Now, try to solve the following question through the above guidelines:"
+
+    def get_system_prompt_list(self) -> List[str]:
+        return [
+            "Your role as an assistant involves thoroughly exploring questions through a systematic long thinking process before providing the final precise and accurate solutions.",
+            "This requires engaging in a comprehensive cycle of analysis, summarizing, exploration, reassessment, reflection, backtracing, and iteration to develop well-considered thinking process.",
+            "Please structure your response into two main sections:",
+            "Thought and Solution.",
+            "In the Thought section, detail your reasoning process using the specified format:",
+            "<|begin_of_thought|> {thought with steps separated with '\\n\\n'} <|end_of_thought|>",
+            "Each step should include detailed considerations such as analisying questions, summarizing relevant findings, brainstorming new ideas, verifying the accuracy of the current steps, refining any errors, and revisiting previous steps.",
+            "In the Solution section, based on various attempts, explorations, and reflections from the Thought section, systematically present the final solution that you deem correct.",
+            "The solution should remain a logical, accurate, concise expression style and detail necessary step needed to reach the conclusion, formatted as follows:",
+            "<|begin_of_solution|> {final formatted, precise, and clear solution} <|end_of_solution|>",
+            "Now, try to solve the following question through the above guidelines:"
+        ]
+
+
+class DISTILLReader(Reader):
+    
+    file_path = DATASET_PATH['distill']
+
+    def __init__(self):
+        """
+        {
+            "math": [
+                {
+                    "meta_data": [],
+                    "question": "",
+                    "answer": "",           
+                    "choice_list": [
+                        "", "", "", ""
+                    ],
+                    "answer_content": "",   
+                    "pure_question": ""
+                }
+            ]
+        }
+        """
+        self.meta_db = read_json(DISTILLReader.file_path)
         self.data_list:List = list()
         for key in self.meta_db:
             for item in self.meta_db[key]:
