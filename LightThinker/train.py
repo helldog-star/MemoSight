@@ -412,18 +412,24 @@ def main():
         args, comp_config
     )
 
-    from safetensors.torch import load_file
-    state_dict = load_file("/tmp/hx/rrcot/epl_adaptive_forzen_mtp_aux_cross_attn_E_w1e-2/train/checkpoint-1305/model.safetensors")
-    # 如果模型是 DataParallel 或 DDP，需要去掉 prefix
-    # 例如 "module." 前缀
-    from collections import OrderedDict
-    new_state_dict = OrderedDict()
-    for k, v in state_dict.items():
-        if k.startswith("module."):
-            k = k[len("module.") :]
-        new_state_dict[k] = v
-    # 加载权重
-    model.load_state_dict(new_state_dict, strict=False)
+    # from safetensors.torch import load_file
+    # if local_rank == 0:
+    #     # ckpt_dir = load_file("/tmp/hx/rrcot/epl_adaptive_forzen_mtp_aux_cross_attn_E_w1e-2/train/checkpoint-1305")
+    #     ckpt_dir = load_file("/mnt/zhaorunsong/lx/rrcot_test/epl_adaptive_forzen_mtp_aux_cross_attn_E_w1e-2/train/checkpoint-185")
+    #     files = sorted([os.path.join(ckpt_dir, f)for f in os.listdir(ckpt_dir)if f.endswith(".safetensors")])
+    #     # 如果模型是 DataParallel 或 DDP，需要去掉 prefix
+    #     # 例如 "module." 前缀
+    #     from collections import OrderedDict
+    #     new_state_dict = OrderedDict()
+    #     for f in files:
+    #         shard = load_file(f)
+    #         for k, v in shard.items():
+    #             # 去掉 DDP 的 module 前缀
+    #             if k.startswith("module."):
+    #                 k = k[len("module."):]
+    #             new_state_dict[k] = v
+    #     # 加载权重
+    #     model.load_state_dict(new_state_dict, strict=False)
 
     sample_config:Dict = dict(
         mode=args.mode,
