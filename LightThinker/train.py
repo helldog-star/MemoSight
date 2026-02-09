@@ -291,7 +291,7 @@ def get_model_and_tokenizer(
             args.model_path, config=model_config, torch_dtype=torch.bfloat16, trust_remote_code=True
         )
         if getattr(model_config, "init", False):
-            _print(f"initialize mtp...")
+            _print(f"initialize mtp from last layer...")
             init_mtp_from_last_layer(model)
         if comp_config.forzen_model_train_mtp:
             freeze_except_mtp(model)
@@ -403,12 +403,12 @@ def main():
 
     comp_config = Config.from_file(config_path=args.compress_config)
 
-    resume_from_checkpoint=None
+    # resume_from_checkpoint=None
 
-    if comp_config.forzen_model_train_mtp:
-        args.model_path = resume_from_checkpoint if resume_from_checkpoint is not None else args.model_path
+    # if comp_config.forzen_model_train_mtp:
+    #     args.model_path = resume_from_checkpoint if resume_from_checkpoint is not None else args.model_path
 
-    model, tokenizer,hook_handle = get_model_and_tokenizer(
+    model, tokenizer, hook_handle = get_model_and_tokenizer(
         args, comp_config
     )
 

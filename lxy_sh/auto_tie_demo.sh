@@ -153,14 +153,14 @@ inference_and_evaluate() {
 # inference_and_evaluate "lightthinker_epl" "anchor-thought" "inference"
 
 
-# ==================== 模型2: mtp_aux_cross_attn_config_E_w1e-1_init ====================
-train_model "mtp_aux_cross_attn_config_E_w1e-1_init" "True" "2e-5" "aug-wo-pc" "configs/mtp_aux_cross_attn_config_E_w1e-1_init.json"
+# ==================== 模型2: epl_adaptive_register_mtp ====================
+train_model "epl_adaptive_register_mtp" "True" "2e-5" "aug-wo-pc" "configs/epl_adaptive_register_mtp.json"
 if [ $? -ne 0 ]; then
-    echo "❌ mtp_aux_cross_attn_config_E_w1e-1_init训练失败，退出"
+    echo "❌ epl_adaptive_register_mtp训练失败，退出"
     exit 1
 fi
 
-inference_and_evaluate "mtp_aux_cross_attn_config_E_w1e-1_init" "anchor-thought" "inference"
+inference_and_evaluate "epl_adaptive_register_mtp" "anchor-thought" "inference"
 
 echo ""
 echo "=========================================="
