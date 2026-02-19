@@ -152,6 +152,82 @@ def create_attention_for_aug_data(
 
     return results
 
+def create_attention_for_aug_data_apa_mtp(
+    input_ids:List[int],
+    locate_index_list:List[List[int]],
+    # [start, end, n_inst]
+    locate_indicator_list:List[str],
+    exclude_continue:bool,
+    prefill_compress:bool=True,     
+    max_length:int=None
+):
+    """
+    构建 apa_mtp 模式的注意力掩码。
+    规则：
+    - R(register) 与 T(文本token) 注意力一致：只能看到 P(prompt)、C(compress)、T(文本)，不能看到其他 R
+    - T 和 C 也不能看到任何 R
+    实现：将所有 R 位置从 key 维度 mask 掉，使得任何 token 都无法 attend 到 R
+    """
+    # 0-False mask, 1-True don't mask
+    length = len(input_ids)
+    mask = np.ones([length, length], dtype=np.bool)
+    mask = np.tril(mask)  # 下三角矩阵
+
+    assert len(locate_index_list) == len(locate_indicator_list)
+
+    # 收集所有 register token 的位置，构建 register_token_index tensor
+    # 在 apa_mtp 中，abandoned 段 [start:end] 格式为 [R,T,R,T,...,R,T]，R 在偶数偏移处
+    register_token_index = np.zeros(length, dtype=np.int64)
+    for index_item in locate_index_list:
+        start, end, l_inst, n_comp, n_continue = index_item
+        # [start:end] 为 abandoned 段，R 在 start, start+2, start+4, ...
+        for k in range((end - start) // 2):
+            r = start + 2 * k
+            if r < length:
+                register_token_index[r] = 1
+                mask[:, r] = 0  # 任何 token 都不能 attend 到 R
+
+    pre_start, pre_end, pre_n_inst, pre_n_comp, pre_n_continue = None, None, None, None, None
+    pre_state = None
+
+    for index_item, index_state in zip(locate_index_list, locate_indicator_list):
+        assert index_state in ['compressed-prompt', 'compressed-output']
+        start, end, l_inst, n_comp, n_continue = index_item
+        
+        # 1. attention_mask：让后续 token 无法看到 原始文本 和 压缩指令
+        if exclude_continue:
+            mask[end+l_inst+n_comp:, start:end+l_inst] = 0
+            if pre_n_continue is not None and pre_n_continue != 0:
+                mask[end+l_inst+n_comp:, pre_end+pre_n_inst+pre_n_comp:pre_end+pre_n_inst+pre_n_comp+pre_n_continue] = 0
+        else:
+            mask[end+l_inst+n_comp:, start:end+l_inst] = 0
+
+        # 1.1 prefill remove compress
+        if not prefill_compress and index_state == 'compressed-prompt':
+            mask[0:end+l_inst+n_comp, 0:end+l_inst+n_comp] = np.tri(len(mask[0:end+l_inst+n_comp, 0:end+l_inst+n_comp]), dtype=int)
+            
+        if not prefill_compress and index_state == 'compressed-output' and pre_state == 'compressed-prompt':
+            mask[0:start, 0:start] = np.tri(start, dtype=int)
+        
+        pre_start, pre_end, pre_n_inst, pre_n_comp, pre_n_continue = start, end, l_inst, n_comp, n_continue
+        pre_state = index_state
+
+    # 5. padding（填充）
+    if max_length is not None and max_length > length:
+        padding_mask = np.zeros([max_length, max_length], dtype=np.bool)
+        if length > 0:
+            padding_mask[:length, :length] = mask
+            padding_mask[length:, :length] = mask[-1:]
+        results = torch.as_tensor(padding_mask)
+        # register_token_index 右填充 0 至 max_length
+        register_token_index_padded = np.zeros(max_length, dtype=np.int64)
+        register_token_index_padded[:length] = register_token_index
+        register_token_index = register_token_index_padded
+    else:
+        results = torch.as_tensor(mask)
+
+    return results, register_token_index 
+
 def create_attention_for_recover_data(
     input_ids:List[int],
     locate_index_list:List[List[int]],

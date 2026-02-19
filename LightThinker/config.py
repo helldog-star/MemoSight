@@ -66,7 +66,6 @@ class Config:
         self.output_comp_token_desp_list:List[str] = list()
 
         self.split_token:str = "<|splitter|>"
-        self.split_token_desp:str = "it's time to compress"
         self.split_token_desp:str = "\n\n"
         self.split_token_id:int = None
 
@@ -98,6 +97,9 @@ class Config:
         self.double_new_line_token_desp = "\n\n"
         self.double_new_line_token_id:int = None
 
+        self.register_token:str = "<|register|>"
+        self.register_token_desp:str = "predict the future token"
+        self.register_token_id:int = None
 
         self.special_token_name_list:List[str] = [
             self.split_token, 
@@ -108,6 +110,7 @@ class Config:
             self.begin_solution_token,
             self.end_solution_token,
             self.double_new_line_token,
+            self.register_token
         ]
         self.special_token_desp_list:List[str] = [
             self.split_token_desp, 
@@ -118,6 +121,7 @@ class Config:
             self.begin_solution_token_desp,
             self.end_solution_token_desp,
             self.double_new_line_token_desp,
+            self.register_token_desp
         ]
 
         # 为qwen2.5
@@ -170,6 +174,9 @@ class Config:
         self.recover_token_id = tokenizer.convert_tokens_to_ids(
             self.recover_token
         )
+        self.register_token_id = tokenizer.convert_tokens_to_ids(
+            self.register_token
+        )
 
         self.begin_thought_token_id = tokenizer.convert_tokens_to_ids(
             self.begin_thought_token
@@ -209,7 +216,7 @@ class Config:
         return self.output_comp_token_name_list if return_list else "".join(self.output_comp_token_name_list)
     
 
-    def get_adaptive_output_comp_token(self, tokenizer, thought, return_list:bool=False) -> Union[str, List[str]]:
+    def get_adaptive_output_comp_token(self, tokenizer, thought) -> Union[str, List[str]]:
         thought_ids = tokenizer.encode_plus(thought,add_special_tokens=False)["input_ids"]
 
         num_tokens = len(thought_ids)
@@ -223,10 +230,7 @@ class Config:
             num_comp_tokens = min(num_comp_tokens, self.output_comp_n_token)
             comp_tokens = self.output_comp_token_name_list[:num_comp_tokens]
 
-        if return_list:
-            return comp_tokens
-        else:
-            return "".join(comp_tokens), num_comp_tokens
+        return "".join(comp_tokens), num_comp_tokens
 
     def get_prompt_comp_token_id(self) -> List[int]:
         assert self.prompt_comp_token_id_list is not None

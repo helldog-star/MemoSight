@@ -12,7 +12,7 @@ from tokenizer import Tokenizer
 from LightThinker.utils import create_attention_mask
 from LightThinker.utils import visualize_labels, visualize_attention_mask
 from LightThinker.utils import _print, read_jsonl, IGNORE_LABEL_ID, padding_item
-from LightThinker.utils import create_attention_for_aug_data, create_attention_for_recover_data
+from LightThinker.utils import create_attention_for_aug_data, create_attention_for_recover_data, create_attention_for_aug_data_apa_mtp
 
 class MyDataset(torch.utils.data.Dataset):
     def __init__(
@@ -45,7 +45,8 @@ class MyDataset(torch.utils.data.Dataset):
         self.aug_data:List[Dict] = list()
         self.recover_data:List[Dict] = list()
         self.recover_prompt_data:List[Dict] = list()    
-        self.aug_data_wo_prompt_comp:List[Dict] = list()
+        self.aug_data_wo_prompt_comp:List[Dict] = list()    
+        self.aug_data_wo_prompt_comp_apa_mtp:List[Dict] = list()
 
         self.output_compress_instruction:str = output_compress_instruction if output_compress_instruction != None else ""
 
@@ -79,27 +80,7 @@ class MyDataset(torch.utils.data.Dataset):
             # 只有 Rank 0 才有资格决定是否需要“重新处理并写入”
             if self.local_rank == 0:
                 should_process = not os.path.exists(self.cache_path) or force_preprocess
-                
-                # if should_process:
-                #     print(f"[Rank {self.local_rank}] Cache not found or forced. Processing data...")
-                #     self.init()
-                #     self.init_for_aug_data_wo_pc()
-                    
-                #     print(f"[Rank {self.local_rank}] Saving cache to {self.cache_path}...")
-                #     # 保存数据
-                #     cache_data = {
-                #         'normal': self.normal_data,
-                #         'aug': self.aug_data,
-                #         'recover': self.recover_data,
-                #         'recover_prompt': self.recover_prompt_data,
-                #         'aug_wo_pc': self.aug_data_wo_prompt_comp
-                #     }
-                #     torch.save(cache_data, self.cache_path)
-                #     print(f"[Rank {self.local_rank}] Cache saved!")
-                #     data_in_memory = True # Rank 0 刚刚处理完，内存里已经有了
-                # else:
-                #     print(f"[Rank {self.local_rank}] Cache found at {self.cache_path}. Will load shared file.")
-                
+                 
                 if should_process:
                     print(f"[Rank {self.local_rank}] Cache not found or forced. Processing data...")
                     try:
@@ -113,7 +94,8 @@ class MyDataset(torch.utils.data.Dataset):
                             'aug': self.aug_data,
                             'recover': self.recover_data,
                             'recover_prompt': self.recover_prompt_data,
-                            'aug_wo_pc': self.aug_data_wo_prompt_comp
+                            'aug_wo_pc': self.aug_data_wo_prompt_comp,
+                            'aug_register_mtp': self.aug_data_wo_prompt_comp_apa_mtp
                         }
                         
                         # 使用临时文件 + 重命名，避免其他进程读到不完整的文件
@@ -149,13 +131,6 @@ class MyDataset(torch.utils.data.Dataset):
                 print(f"[Rank {self.local_rank}] Loading cached data from {self.cache_path}...")
                 # map_location='cpu' 很重要，防止多进程同时加载导致 GPU 显存瞬间爆炸
                 # cached_data = torch.load(self.cache_path, map_location='cpu', weights_only=False) # 如果你还没降级torch，记得 weights_only
-                
-                # self.normal_data = cached_data['normal']
-                # self.aug_data = cached_data['aug']
-                # self.recover_data = cached_data['recover']
-                # self.recover_prompt_data = cached_data['recover_prompt']
-                # self.aug_data_wo_prompt_comp = cached_data['aug_wo_pc']
-                # print(f"[Rank {self.local_rank}] Loaded successfully.")
 
                 # 验证文件是否存在
                 if not os.path.exists(self.cache_path):
@@ -176,6 +151,7 @@ class MyDataset(torch.utils.data.Dataset):
                     self.recover_data = cached_data['recover']
                     self.recover_prompt_data = cached_data['recover_prompt']
                     self.aug_data_wo_prompt_comp = cached_data['aug_wo_pc']
+                    self.aug_data_wo_prompt_comp_apa_mtp = cached_data['aug_register_mtp']
                     print(f"[Rank {self.local_rank}] Loaded successfully.")
                 except Exception as e:
                     print(f"[Rank {self.local_rank}] ERROR loading cache: {e}")
@@ -429,10 +405,7 @@ class MyDataset(torch.utils.data.Dataset):
             #AE任务的重建数据
             # 1.1 recover prompt part
             assert len(prompt_input_ids_list) == len(prompt_indicator_list)
-            # print(prompt_indicator_list)
-            # print(prompt_input_ids_list)
-            # print(self.tokenizer.eos_token_id)
-            # exit()
+
             recover_prompt_input_ids = [self.config.recover_token_id]
             for input_ids, indicator in zip(prompt_input_ids_list, prompt_indicator_list):
                 if indicator == 'abandoned':
@@ -503,8 +476,9 @@ class MyDataset(torch.utils.data.Dataset):
                 recover_item
             )
             pbar.update(1)
-    #不压缩prompt
-    def init_for_aug_data_wo_pc(self, system_compression:bool=False):
+    
+    # 不压缩prompt
+    def init_for_aug_data_wo_pc(self, system_compression: bool=False):
         pbar = tqdm(total=len(self.meta_data))
         for item in self.meta_data:
             assert isinstance(item, dict)
@@ -563,8 +537,8 @@ class MyDataset(torch.utils.data.Dataset):
                     output_indicator_list.append("abandoned")
                     output_content_list.append(thought + '\n' + self.config.split_token)
                     output_indicator_list.append("compressed-output")
-                    if self.config.compression_ratio > 0: # 大于0则自适应压缩，原先固定9个token时为-1
-                        output_comp_tokens, num_comp_tokens = self.config.get_adaptive_output_comp_token(tokenizer=self.tokenizer, thought=thought, return_list=False)
+                    if self.config.compression_ratio > 0: # compression_ratio大于0则自适应压缩，等于-1则固定token压缩个数
+                        output_comp_tokens, num_comp_tokens = self.config.get_adaptive_output_comp_token(tokenizer=self.tokenizer, thought=thought)
                         output_content_list.append(self.output_compress_instruction + output_comp_tokens + self.config.continue_token)
                         output_comp_adaptive_num_token.append(num_comp_tokens)
                     else:
@@ -587,7 +561,7 @@ class MyDataset(torch.utils.data.Dataset):
                 max_length=self.padding_config['max_length'],
                 train_on_input=self.train_on_input,
                 check_consistency=self.check_consistency,
-                recover_mode=True,
+                recover_mode=False,
                 use_EPL=self.use_EPL,
                 output_comp_adaptive_num_token=output_comp_adaptive_num_token
             )
@@ -599,13 +573,38 @@ class MyDataset(torch.utils.data.Dataset):
                 )
             )
 
+            recover_item, aug_item_register_mtp = self.tokenizer.aug_data_tokenize_apa_mtp(
+                structured_input=structured_input,
+                structured_input_indicator=structured_input_indicator,
+                n_comp_for_prompt=self.config.prompt_comp_n_token,  
+                n_continue_for_prompt=0,
+                n_comp_for_output=self.config.output_comp_n_token,
+                n_continue_for_output=1,
+                mask_label_map=mask_label_map,
+                max_length=self.padding_config['max_length'],
+                train_on_input=self.train_on_input,
+                check_consistency=False,
+                recover_mode=False,
+                use_EPL=self.use_EPL,
+                regitser_token=self.config.register_token,
+                output_comp_adaptive_num_token=output_comp_adaptive_num_token
+            )
+            self.aug_data_wo_prompt_comp_apa_mtp.append(
+                dict(
+                    meta_info=item,
+                    tokenized=aug_item_register_mtp
+                )
+            )
+
+
     def __getitem__(self, idx:int) -> Tuple[Dict, Dict, Dict, Dict, Dict]:
         return (
             self.normal_data[idx],
             self.aug_data[idx],
             self.recover_data[idx],
             self.recover_prompt_data[idx],
-            self.aug_data_wo_prompt_comp[idx]
+            self.aug_data_wo_prompt_comp[idx],
+            self.aug_data_wo_prompt_comp_apa_mtp[idx]
         )
     
     def __len__(self) -> int:
@@ -647,7 +646,7 @@ class MyDataCollator:
             labels=list(),
         )
         for bsz_id, instance in enumerate(instances):
-            normal_data, _, _, _, _ = instance
+            normal_data, _, _, _, _, _ = instance
             new_item = padding_item(
                 item=normal_data['tokenized'],
                 padding_side=self.dataset.padding_config['padding_side'],
@@ -681,7 +680,7 @@ class MyDataCollator:
         # self.recover_data[idx]
 
         for bsz_id, instance in enumerate(instances):
-            _, aug_data, _, _, _ = instance
+            _, aug_data, _, _, _, _ = instance
             final['attention_mask'].append(
                 create_attention_for_aug_data(
                     input_ids=aug_data['tokenized']['input_ids'],
@@ -750,7 +749,7 @@ class MyDataCollator:
         )
 
         for bsz_id, instance in enumerate(instances):
-            _, aug_data, recover_data, _, _ = instance
+            _, aug_data, recover_data, _, _, _ = instance
             if len(recover_data) == 0:
                 final['attention_mask'].append(
                     create_attention_for_aug_data(
@@ -878,7 +877,7 @@ class MyDataCollator:
         # self.recover_prompt_data[idx]
 
         for bsz_id, instance in enumerate(instances):
-            _, _, _, recover_prompt_data, _ = instance
+            _, _, _, recover_prompt_data, _, _ = instance
             final['attention_mask'].append(
                 create_attention_for_aug_data(
                     input_ids=recover_prompt_data['tokenized']['input_ids'],
@@ -945,11 +944,9 @@ class MyDataCollator:
             system_prompt_length=list(),
             row_comp_index=list(),
             column_comp_index=list(),
-            row_comp_continue_index=list(),
-            column_comp_continue_index=list(),
         )
         for bsz_id, instance in enumerate(instances):
-            _, _, _, _, aug_data = instance
+            _, _, _, _, aug_data, _ = instance
             final['attention_mask'].append(
                 create_attention_for_aug_data(
                     input_ids=aug_data['tokenized']['input_ids'],
@@ -976,11 +973,6 @@ class MyDataCollator:
             final['labels'].append(new_item['labels'])
             final['position_ids'].append(new_item['position_ids'])
             final['system_prompt_length'].append(new_item['system_prompt_length'])
-            # row and column
-            final['column_comp_continue_index'].extend(
-                    [i for i in range(new_item['system_prompt_length'][0])]
-                )
-            final['row_comp_continue_index'].extend([bsz_id] * new_item['system_prompt_length'][0])
 
             for item in aug_data['tokenized']['locate_index']:
                 start, end, l_inst, n_comp, n_continue = item
@@ -990,13 +982,7 @@ class MyDataCollator:
                 )
                 final['row_comp_index'].extend([bsz_id] * n_comp)
 
-                # compression + continue
-                total_comp_continue = n_comp + n_continue 
-                final['column_comp_continue_index'].extend(
-                    [end+l_inst+i for i in range(total_comp_continue)]
-                )
-                final['row_comp_continue_index'].extend([bsz_id] * total_comp_continue)
-        
+
         return dict(
             input_ids=torch.as_tensor(
                 final['input_ids']
@@ -1020,11 +1006,62 @@ class MyDataCollator:
             column_comp_index=torch.as_tensor(
                 final['column_comp_index']
             ),
-            row_comp_continue_index=torch.as_tensor(
-                final['row_comp_continue_index']
+        )
+
+    def _aug_mode_wo_pc_apa_mtp(self, instances:List[Tuple]) -> Dict:
+        final = dict(
+            input_ids=list(),
+            labels=list(),
+            attention_mask=list(),
+            position_ids=list(),
+            system_prompt_length=list(),
+            register_token_index=list(),
+        )
+        for bsz_id, instance in enumerate(instances):
+            _, _, _, _, _, aug_data = instance
+
+            attention_mask, register_token_index = create_attention_for_aug_data_apa_mtp(
+                    input_ids=aug_data['tokenized']['input_ids'],
+                    locate_index_list=aug_data['tokenized']['locate_index'],
+                    locate_indicator_list=aug_data['tokenized']['locate_indicator'],
+                    exclude_continue=self.exclude_continue,
+                    max_length=self.dataset.padding_config['max_length'],
+                    prefill_compress=False
+                )
+            final['attention_mask'].append(attention_mask)
+            final['register_token_index'].append(register_token_index)
+            new_item = padding_item(
+                item=aug_data['tokenized'],
+                padding_side=self.dataset.padding_config['padding_side'],
+                label_padding_id=self.dataset.padding_config['label_padding_id'], 
+                input_padding_id=self.dataset.padding_config['input_padding_id'], 
+                max_length=self.dataset.padding_config['max_length'], 
+                position_ids_padding_id=self.dataset.padding_config['position_ids_padding_id']
+            )
+            final['input_ids'].append(new_item['input_ids'])
+            final['labels'].append(new_item['labels'])
+            final['position_ids'].append(new_item['position_ids'])
+            final['system_prompt_length'].append(new_item['system_prompt_length'])
+
+        return dict(
+            input_ids=torch.as_tensor(
+                final['input_ids']
             ),
-            column_comp_continue_index=torch.as_tensor( 
-                final['column_comp_continue_index']
+            labels=torch.as_tensor(
+                final['labels']
+            ),
+            attention_mask=create_attention_mask(
+                final['attention_mask'],
+                dtype=torch.bfloat16
+            ),
+            position_ids=torch.as_tensor(
+                final['position_ids']
+            ),
+            system_prompt_length=torch.as_tensor(
+                final['system_prompt_length']
+            ),
+            register_token_index=torch.as_tensor(
+                final['register_token_index']
             ),
         )
 
@@ -1038,6 +1075,8 @@ class MyDataCollator:
             return self._normal_mode(instances)
         elif self.sample_config['mode'] == 'aug-wo-pc':
             return self._aug_mode_wo_pc(instances)
+        elif self.sample_config['mode'] == 'aug-wo-pc-apa-mtp':
+            return self._aug_mode_wo_pc_apa_mtp(instances)
         else:
             assert False
         if self.sample_config['hybrid'] == True:
@@ -1078,9 +1117,9 @@ class MyDataCollator:
         
 if __name__ == '__main__':
 
-    config_path = "YOUR_CONFIG.json"
-    tokenizer_path = "YOUR_TOKENIZER_PATH"
-    dataset_path = "YOUR_DATASET.jsonl"
+    config_path = "/mnt/lxy/RRcot/configs/LightThinker/qwen/apa_mtp.json"
+    tokenizer_path = "/mnt/zhaorunsong/models/Qwen2.5-0.5B-Instruct"
+    dataset_path = "/mnt/lxy/RRcot/data/train/train_debug.jsonl"
 
     
     # bos_token="<|begin_of_text|>"
@@ -1089,7 +1128,7 @@ if __name__ == '__main__':
     eos_token="<|im_end|>"
 
     train_on_input = False
-    exclude_continue = True
+    exclude_continue = False
 
     config:Config = Config.from_file(config_path=config_path)
     # special_token_list:List[str] = config.special_token_name_list
@@ -1113,7 +1152,7 @@ if __name__ == '__main__':
         padding_side='right',
         label_padding_id=-100,
         input_padding_id=tokenizer.eos_token_id,
-        max_length=75,
+        max_length=1024,
         position_ids_padding_id=0,
     )
     attention_config = dict(
@@ -1123,7 +1162,7 @@ if __name__ == '__main__':
         prefill_compress=False,
     )
     sample_config = dict(
-        mode=['aug', 'normal', 'recover', 'aug-wo-pc'][-1],
+        mode=['aug', 'normal', 'recover', 'aug-wo-pc', 'aug-wo-pc-apa-mtp'][-1],
         hybrid=False
     )
 
@@ -1137,8 +1176,8 @@ if __name__ == '__main__':
         output_compress_instruction="",
         cache_dir="",  # 启用缓存
         cache_filename=None,
-        force_preprocess=True,  # 设置为True可强制重新预处理
-        use_EPL=False
+        force_preprocess=False,  # 设置为True可强制重新预处理
+        use_EPL=True
     )
 
     data_collator = MyDataCollator(
