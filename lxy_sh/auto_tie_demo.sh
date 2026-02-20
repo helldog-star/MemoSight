@@ -35,10 +35,9 @@ EVALUATE_SCRIPT="${SCRIPT_DIR}/evaluate.sh"
 # ==================== 通用函数 ====================
 
 export PYTHONPATH=$PYTHONPATH:${ROOT_DIR}
-cd ${ROOT_DIR}
-
 export NCCL_P2P_DISABLE="1"
 export NCCL_IB_DISABLE="1"
+cd ${ROOT_DIR}
 
 # 训练模型
 train_model() {
@@ -47,9 +46,10 @@ train_model() {
     local lr=$3
     local mode=$4
     local aux_config=$5
+    local conf_version=$6
     
     echo "=======🚀 ${model_tag}开始训练 ======="
-    bash ${TRAIN_SCRIPT} "${ROOT_DIR}" "${model_tag}" "${use_EPL}" "${lr}" "${mode}" "${aux_config}" "${OUTPUT_BASE_DIR}" "${TOKENIZER_PATH}" "${MODEL_PATH}" "${TRAIN_DATA_PATH}"
+    bash ${TRAIN_SCRIPT} "${ROOT_DIR}" "${model_tag}" "${use_EPL}" "${lr}" "${mode}" "${aux_config}" "${OUTPUT_BASE_DIR}" "${TOKENIZER_PATH}" "${MODEL_PATH}" "${TRAIN_DATA_PATH}" "${conf_version}"
     if [ $? -ne 0 ]; then
         echo "❌ ${model_tag}训练失败"
         return 1
@@ -63,6 +63,7 @@ inference_and_evaluate() {
     local model_tag=$1
     local eval_method=$2
     local inference_script_type=$3
+    local compress_config=$4
     
     echo ""
     echo "=========================================="
@@ -77,7 +78,7 @@ inference_and_evaluate() {
     else
         INFERENCE_CMD="${INFERENCE_SCRIPT}"
         echo "使用 inference.sh 进行推理"
-        bash ${INFERENCE_CMD} "${model_tag}" "${REPETITION_PENALTY}" "${CKPT}" "${INFERENCE_ROOT_DIR}" "${OUTPUT_BASE_DIR}" "${TOKENIZER_PATH}"
+        bash ${INFERENCE_CMD} "${model_tag}" "${REPETITION_PENALTY}" "${CKPT}" "${INFERENCE_ROOT_DIR}" "${OUTPUT_BASE_DIR}" "${TOKENIZER_PATH}" "${compress_config}"
     fi
     
     if [ $? -ne 0 ]; then
@@ -109,7 +110,7 @@ inference_and_evaluate() {
         fi
         
         echo "评估数据集: ${dataset}"
-        bash ${EVALUATE_SCRIPT} "${eval_method}" "${TOKENIZER_PATH}" "${dataset}" "${base_path}"
+        bash ${EVALUATE_SCRIPT} "${eval_method}" "${TOKENIZER_PATH}" "${dataset}" "${base_path}" "${comp_config}"
         
         if [ $? -ne 0 ]; then
             echo "❌ ${model_tag} 在 ${dataset} 数据集上评估失败"
@@ -124,43 +125,16 @@ inference_and_evaluate() {
     return 0
 }
 
-# ==================== 模型1: vanilla ====================
-# train_model "vanilla" "False" "1e-5" "normal" "None"
-# if [ $? -ne 0 ]; then
-#     echo "❌ vanilla训练失败，退出"
-#     exit 1
-# fi
-
-# inference_and_evaluate "vanilla" "normal" "sglang_inference"
-
-# # ==================== 模型2: lightthinker ====================
-# train_model "lightthinker" "False" "2e-5" "aug-wo-pc" "None"
-# if [ $? -ne 0 ]; then
-#     echo "❌ lightthinker训练失败，退出"
-#     exit 1
-# fi
-
-# inference_and_evaluate "lightthinker" "anchor-thought" "inference"
 
 
-# # ==================== 模型3: lightthinker_epl ====================
-# train_model "lightthinker_epl" "True" "2e-5" "aug-wo-pc" "None"
-# if [ $? -ne 0 ]; then
-#     echo "❌ lightthinker_epl训练失败，退出"
-#     exit 1
-# fi
-
-# inference_and_evaluate "lightthinker_epl" "anchor-thought" "inference"
-
-
-# ==================== 模型2: epl_adaptive_register_mtp ====================
-train_model "epl_adaptive_register_mtp" "True" "2e-5" "aug-wo-pc" "configs/epl_adaptive_register_mtp.json"
+# ==================== 模型: epl_apa_mtp_w3e-1 ====================
+train_model "epl_apa_mtp_w3e-1" "True" "2e-5" "aug-wo-pc-apa-mtp" "configs/epl_apa_mtp.json" "apa_mtp"
 if [ $? -ne 0 ]; then
-    echo "❌ epl_adaptive_register_mtp训练失败，退出"
+    echo "❌ epl_apa_mtp_w3e-1训练失败，退出"
     exit 1
 fi
+inference_and_evaluate "epl_apa_mtp_w3e-1" "anchor-thought" "inference" "./configs/LightThinker/qwen/apa_mtp.json"
 
-inference_and_evaluate "epl_adaptive_register_mtp" "anchor-thought" "inference"
 
 echo ""
 echo "=========================================="

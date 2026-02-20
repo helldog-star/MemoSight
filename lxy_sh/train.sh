@@ -33,6 +33,7 @@ output_base_dir="$7"
 tokenizer_path="$8"
 model_path="$9"
 train_data_path="${10}"
+conf_version="${11}"
 
 # 检查必需参数是否为空
 if [ -z "$root_dir" ] || [ -z "$init_tag" ] || [ -z "$use_EPL" ] || [ -z "$lr" ] || [ -z "$mode" ] || [ -z "$output_base_dir" ] || [ -z "$tokenizer_path" ] || [ -z "$model_path" ] || [ -z "$train_data_path" ]; then
@@ -156,7 +157,6 @@ echo "warmup_steps=${warmup_steps}"
 # att_info="${model_size}-${model_type}-len_${max_length}-see_cur_${see_current}-bi_${bi_directional}-diag_${diagonal}-mode_${mode}"
 # train_info="prefill_compress_${prefill_compress}-hybrid_${hybrid}-epoch_${epochs}-lr_${lr}-bsz_${micro_batch_size}-accumu_${gradient_accumulation_steps}-warm_r_${warmup_ratio}-warm_s_${warmup_steps}-freeze_model_${freeze_model}-train_input_${train_on_input}-qkv_${qkv}-ex_con_${exclude_continue}"
 
-conf_version="epl_apa_mtp"
 compress_config="$root_dir/configs/LightThinker/${model_type}/${conf_version}.json"
 
 # 使用 tee 命令同时输出到终端和日志文件
