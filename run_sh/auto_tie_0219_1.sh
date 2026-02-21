@@ -11,7 +11,7 @@ OUTPUT_BASE_DIR="/tmp/hx/rrcot"  # 所有输出（训练、推理）的基础目
 
 # 模型和Tokenizer路径配置
 TOKENIZER_PATH="/tmp/hx/Qwen/Qwen2.5-1.5B-Instruct"  # Tokenizer路径
-MODEL_PATH="/tmp/hx/rrcot/epl_adaptive_forzen_mtp_aux_cross_attn_E_w1e-2/train/checkpoint-1305"  # 预训练模型路径
+MODEL_PATH="/tmp/hx/deepseek-ai/DeepSeek-R1-Distill-Qwen-7B"  # 预训练模型路径
 
 # 训练数据路径配置
 TRAIN_DATA_PATH="/home/zhaorunsong.zrs/repo/RRcot/data/train/train.jsonl"  # 训练数据路径
