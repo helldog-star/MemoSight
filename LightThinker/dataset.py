@@ -1043,6 +1043,7 @@ class MyDataCollator:
             final['position_ids'].append(new_item['position_ids'])
             final['system_prompt_length'].append(new_item['system_prompt_length'])
 
+
         return dict(
             input_ids=torch.as_tensor(
                 final['input_ids']

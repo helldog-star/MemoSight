@@ -463,8 +463,8 @@ class Tokenizer:
                 break
             if i == 0:
                 final_item["system_prompt_length"].append(len(tokenized_input_id_list[0][0]))
-                # 精确的计算加入register token后的max length（仅在answer部分插入register）
-                max_len_apa_mtp = (max_length - final_item["system_prompt_length"][-1]) * 2 + final_item["system_prompt_length"][-1]
+                # # 精确的计算加入register token后的max length（仅在answer部分插入register）
+                # max_len_apa_mtp = (max_length - final_item["system_prompt_length"][-1]) * 2 + final_item["system_prompt_length"][-1]
             for j in range(len(tokenized_label_list[i])):
                 if len(final_item['input_ids']) >= max_len_apa_mtp:
                     break
