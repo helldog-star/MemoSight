@@ -90,7 +90,7 @@ bos_token="<|im_start|>"
 eos_token="<|im_end|>"
 
 # training
-max_length=4096
+max_length=8192
 lr_scheduler_type="cosine"
 epochs=1   #change to 1 for test
 # lr 从命令行参数传入，不再硬编码

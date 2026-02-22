@@ -456,17 +456,14 @@ class Tokenizer:
         subtract_compressed_token = False
         adaptive_index = 0
 
-        max_len_apa_mtp = max_length * 2
         for i in range(len(tokenized_label_list)):
-            # 加入register token后，input_ids长度约为原来的2倍
-            if len(final_item['input_ids']) >= max_len_apa_mtp:
+            # 加入register token后，input_ids长度约为原来的2倍，将max_length设置为baseline的2倍
+            if len(final_item['input_ids']) >= max_length:
                 break
             if i == 0:
                 final_item["system_prompt_length"].append(len(tokenized_input_id_list[0][0]))
-                # # 精确的计算加入register token后的max length（仅在answer部分插入register）
-                # max_len_apa_mtp = (max_length - final_item["system_prompt_length"][-1]) * 2 + final_item["system_prompt_length"][-1]
             for j in range(len(tokenized_label_list[i])):
-                if len(final_item['input_ids']) >= max_len_apa_mtp:
+                if len(final_item['input_ids']) >= max_length:
                     break
                 assert structured_input_indicator[i][j] in [
                     'save', 'abandoned', 'compressed-prompt', 'compressed-output'
@@ -527,7 +524,7 @@ class Tokenizer:
                 if use_EPL and structured_input_indicator[i][j] == 'compressed-output':
                     compression_count += n_compressed
                     for k in range(len(tokenized_label_list[i][j])):
-                        if len(final_item['input_ids']) >= max_len_apa_mtp:
+                        if len(final_item['input_ids']) >= max_length:
                             break
                         # position_id 逻辑
                         if structured_input_indicator[i][j] == 'compressed-output' and compressed_positions is not None and n_compressed != 0:
@@ -548,7 +545,7 @@ class Tokenizer:
                             segment_input_ids, regitser_token_id, register_mtp_offset, base_pos
                         )
                         for k in range(len(tokenized_label_list[i][j])):
-                            if len(final_item['input_ids']) >= max_len_apa_mtp:
+                            if len(final_item['input_ids']) >= max_length:
                                 break
 
                             final_item['input_ids'].append(segment_input_ids[k])
@@ -558,7 +555,7 @@ class Tokenizer:
                     # 处理save和非EPL情况下的compressed-output
                     else:
                         for k in range(len(tokenized_label_list[i][j])):
-                            if len(final_item['input_ids']) >= max_len_apa_mtp:
+                            if len(final_item['input_ids']) >= max_length:
                                 break
                             final_item['position_ids'].append(len(final_item['input_ids']) - compression_count - register_count)
                             
