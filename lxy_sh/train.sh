@@ -96,7 +96,7 @@ epochs=1   #change to 1 for test
 # lr 从命令行参数传入，不再硬编码
 save_steps=2
 deepspeed="$root_dir/configs/ds_z3_offload_config.json"
-micro_batch_size=1
+micro_batch_size=2
 gradient_accumulation_steps=2
 warmup_ratio=0.05
 # mode 从命令行参数传入，不再硬编码

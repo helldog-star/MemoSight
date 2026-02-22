@@ -13,7 +13,7 @@ TOKENIZER_PATH="/mnt/lxy/hf_models/Qwen2.5-1.5B-Instruct"  # Tokenizer路径
 MODEL_PATH="/mnt/zhaorunsong/models/Qwen2.5-0.5B-Instruct"  # 预训练模型路径
 
 # 训练数据路径配置
-TRAIN_DATA_PATH="/mnt/lxy/RRcot/data/train/train_debug.jsonl"  # 训练数据路径
+TRAIN_DATA_PATH="/mnt/lxy/RRcot/data/train/train.jsonl"  # 训练数据路径
 
 # Conda环境配置（用于sglang_inference.sh）
 CONDA_SH_PATH="/mnt/lxy/miniconda3/etc/profile.d/conda.sh"  # Conda初始化脚本路径
