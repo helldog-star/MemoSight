@@ -190,7 +190,6 @@ class Tokenizer:
             system_prompt_length=list()
         )
         compression_count = 0
-        subtract_compressed_token = False
         adaptive_index = 0
         for i in range(len(tokenized_label_list)):
             if len(final_item['input_ids']) >= max_length:
@@ -453,7 +452,6 @@ class Tokenizer:
         )
         compression_count = 0
         register_count = 0
-        subtract_compressed_token = False
         adaptive_index = 0
 
         for i in range(len(tokenized_label_list)):
@@ -478,7 +476,7 @@ class Tokenizer:
                         if len(output_comp_adaptive_num_token) > 0:
                             n_comp = output_comp_adaptive_num_token[adaptive_index]
                             adaptive_index += 1
-                        assert len(tokenized_input_id_list[i][j+1]) - n_comp - n_continue >= 0
+                        assert len(tokenized_input_id_list[i][j+1]) - n_comp - n_continue == 0
                         # apa_mtp just support compressed-output, so we do not mask for instruction
                         # # mask for instruction
                         # if len(tokenized_input_id_list[i][j+1]) - n_comp - n_continue > 0:

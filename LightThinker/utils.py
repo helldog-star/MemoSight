@@ -185,32 +185,35 @@ def create_attention_for_aug_data_apa_mtp(
             r = start + 2 * k
             if r < length:
                 register_token_index[r] = 1
-                mask[:, r] = 0  # 任何 token 都不能 attend 到 R
+                mask[:, r] = 0  # 默认任何 token 都不能 attend 到该 R
+                mask[r, r] = 1  # 允许该 R attend 到自己，但不能 attend 到其他 R
 
-    pre_start, pre_end, pre_n_inst, pre_n_comp, pre_n_continue = None, None, None, None, None
-    pre_state = None
+    # pre_start, pre_end, pre_n_inst, pre_n_comp, pre_n_continue = None, None, None, None, None
+    # pre_state = None
 
     for index_item, index_state in zip(locate_index_list, locate_indicator_list):
         assert index_state in ['compressed-prompt', 'compressed-output']
         start, end, l_inst, n_comp, n_continue = index_item
         
-        # 1. attention_mask：让后续 token 无法看到 原始文本 和 压缩指令
-        if exclude_continue:
-            mask[end+l_inst+n_comp:, start:end+l_inst] = 0
-            if pre_n_continue is not None and pre_n_continue != 0:
-                mask[end+l_inst+n_comp:, pre_end+pre_n_inst+pre_n_comp:pre_end+pre_n_inst+pre_n_comp+pre_n_continue] = 0
-        else:
-            mask[end+l_inst+n_comp:, start:end+l_inst] = 0
-
-        # 1.1 prefill remove compress
-        if not prefill_compress and index_state == 'compressed-prompt':
-            mask[0:end+l_inst+n_comp, 0:end+l_inst+n_comp] = np.tri(len(mask[0:end+l_inst+n_comp, 0:end+l_inst+n_comp]), dtype=int)
-            
-        if not prefill_compress and index_state == 'compressed-output' and pre_state == 'compressed-prompt':
-            mask[0:start, 0:start] = np.tri(start, dtype=int)
+        mask[end+l_inst+n_comp:, start:end+l_inst] = 0  # 让后续 token 无法看到 原始文本 和 压缩指令
         
-        pre_start, pre_end, pre_n_inst, pre_n_comp, pre_n_continue = start, end, l_inst, n_comp, n_continue
-        pre_state = index_state
+        # # 1. attention_mask：让后续 token 无法看到 原始文本 和 压缩指令
+        # if exclude_continue:
+        #     mask[end+l_inst+n_comp:, start:end+l_inst] = 0
+        #     if pre_n_continue is not None and pre_n_continue != 0:
+        #         mask[end+l_inst+n_comp:, pre_end+pre_n_inst+pre_n_comp:pre_end+pre_n_inst+pre_n_comp+pre_n_continue] = 0
+        # else:
+        #     mask[end+l_inst+n_comp:, start:end+l_inst] = 0
+
+        # # 1.1 prefill remove compress
+        # if not prefill_compress and index_state == 'compressed-prompt':
+        #     mask[0:end+l_inst+n_comp, 0:end+l_inst+n_comp] = np.tri(len(mask[0:end+l_inst+n_comp, 0:end+l_inst+n_comp]), dtype=int)
+            
+        # if not prefill_compress and index_state == 'compressed-output' and pre_state == 'compressed-prompt':
+        #     mask[0:start, 0:start] = np.tri(start, dtype=int)
+        
+        # pre_start, pre_end, pre_n_inst, pre_n_comp, pre_n_continue = start, end, l_inst, n_comp, n_continue
+        # pre_state = index_state
 
     # 5. padding（填充）
     if max_length is not None and max_length > length:
