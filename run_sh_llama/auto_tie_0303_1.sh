@@ -145,24 +145,6 @@ if [ $? -ne 0 ]; then
 fi
 inference_and_evaluate "llama_epl" "anchor-thought" "inference" "./configs/LightThinker/llama/v1.json"
 
-
-# ==================== 模型: llama_lightThinker ====================
-train_model "llama_lightThinker" "False" "2e-5" "aug-wo-pc" "None" "v1"
-if [ $? -ne 0 ]; then
-    echo "❌ llama_lightThinker训练失败，退出"
-    exit 1
-fi
-inference_and_evaluate "llama_lightThinker" "anchor-thought" "inference" "./configs/LightThinker/llama/v1.json"
-
-
-# ==================== 模型: llama_vanilla ====================
-train_model "llama_vanilla" "False" "1e-5" "normal" "None" "v1"
-if [ $? -ne 0 ]; then
-    echo "❌ llama_vanilla训练失败，退出"
-    exit 1
-fi
-inference_and_evaluate "llama_vanilla" "normal" "sglang_inference" "./configs/LightThinker/llama/v1.json"
-
 echo ""
 echo "=========================================="
 echo "      ✅ 所有模型训练、推理和评估完成     "
