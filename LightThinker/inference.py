@@ -751,7 +751,7 @@ def _prefill_wo_prompt_compression(
     )
     # 2. tokenize
     input_ids = tokenizer.tokenizer(
-        prompt, return_tensors=None
+        prompt, return_tensors=None, add_special_tokens=False
     )['input_ids']
     token_utils.show_prompt_input_ids.extend(input_ids)
     token_utils.set_input_ids(input_ids)
@@ -774,7 +774,8 @@ def _prefill_wo_prompt_compression(
         ),
         use_cache=True,
         past_key_values=past_key_values,
-        return_dict=True
+        return_dict=True,
+        output_hidden_states=True
     )
     # 4. get the generated token id
     predicted_token_id:int = InferenceUtils.get_predicted_token_ids(
@@ -819,19 +820,19 @@ def _prefill_w_prompt_compression(
     # 1. set the input_ids and indicator_list
     if comp_config.prompt_comp_level == 'token' and comp_config.prompt_save_template == True:
         prefix_input_ids:List[int] = [tokenizer.bos_token_id] + tokenizer.tokenizer(
-            prefix_prompt, return_tensors=None
+            prefix_prompt, return_tensors=None, add_special_tokens=False
         )['input_ids']
         middle_input_ids:List[int] = tokenizer.tokenizer(
-            middle_prompt, return_tensors=None
+            middle_prompt, return_tensors=None, add_special_tokens=False
         )['input_ids']
         suffix_input_ids:List[int] = tokenizer.tokenizer(
-            suffix_prompt, return_tensors=None
+            suffix_prompt, return_tensors=None, add_special_tokens=False
         )['input_ids']
         system_prompt_input_ids:List[int] = tokenizer.tokenizer(
-            system_prompt, return_tensors=None
+            system_prompt, return_tensors=None, add_special_tokens=False
         )['input_ids']
         question_input_ids:List[int] = tokenizer.tokenizer(
-            question, return_tensors=None
+            question, return_tensors=None, add_special_tokens=False
         )['input_ids']
 
         step:int = comp_config.prompt_comp_step
@@ -876,7 +877,7 @@ def _prefill_w_prompt_compression(
                 middle_prompt + question + \
                     suffix_prompt
         _input_ids:List[int] = tokenizer.tokenizer(
-            prompt, return_tensors=None
+            prompt, return_tensors=None, add_special_tokens=False
         )['input_ids']
         step = comp_config.prompt_comp_step
         token_utils.show_prompt_input_ids.extend(_input_ids)
@@ -897,13 +898,13 @@ def _prefill_w_prompt_compression(
         token_utils.show_prompt_input_ids.append(comp_config.continue_token_id)
     elif comp_config.prompt_comp_level == 'sentence' and comp_config.prompt_save_template == True:
         prefix_input_ids:List[int] = [tokenizer.bos_token_id] + tokenizer.tokenizer(
-            prefix_prompt, return_tensors=None
+            prefix_prompt, return_tensors=None, add_special_tokens=False
         )['input_ids']
         middle_input_ids:List[int] = tokenizer.tokenizer(
-            middle_prompt, return_tensors=None
+            middle_prompt, return_tensors=None, add_special_tokens=False
         )['input_ids']
         suffix_input_ids:List[int] = tokenizer.tokenizer(
-            suffix_prompt, return_tensors=None
+            suffix_prompt, return_tensors=None, add_special_tokens=False
         )['input_ids']
 
         input_ids.extend(prefix_input_ids)
@@ -911,7 +912,7 @@ def _prefill_w_prompt_compression(
         for sent in system_prompt_list:
             text_start = len(input_ids)
             sent_input_ids = tokenizer.tokenizer(
-                sent, return_tensors=None
+                sent, return_tensors=None, add_special_tokens=False
             )['input_ids']
             input_ids.extend(sent_input_ids)
             token_utils.show_prompt_input_ids.extend(sent_input_ids)
@@ -930,7 +931,7 @@ def _prefill_w_prompt_compression(
         for sent in question_list:
             text_start = len(input_ids)
             sent_input_ids = tokenizer.tokenizer(
-                sent, return_tensors=None
+                sent, return_tensors=None, add_special_tokens=False
             )['input_ids']
             input_ids.extend(sent_input_ids)
             token_utils.show_prompt_input_ids.extend(sent_input_ids)

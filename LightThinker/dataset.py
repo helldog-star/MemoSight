@@ -166,7 +166,7 @@ class MyDataset(torch.utils.data.Dataset):
     def insert_comp_for_output(self, output:str) -> Tuple[List[str], List[List[int]]]:
         assert self.config.output_comp_level == 'token'
         output_input_ids = self.tokenizer.tokenizer(
-            output, return_tensors=None
+            output, return_tensors=None, add_special_tokens=False
         )['input_ids']
         input_ids_list:List[List[int]] = list()
         indicator_list:List[str] = list()
@@ -213,13 +213,13 @@ class MyDataset(torch.utils.data.Dataset):
         if self.config.prompt_save_template:
             prefix_input_ids = self.tokenizer.tokenizer(
                 self.tokenizer.bos_token + self.config.template_cfg['prefix'],
-                return_tensors=None
+                return_tensors=None,add_special_tokens=False
             )['input_ids']
             middle_input_ids = self.tokenizer.tokenizer(
-                self.config.template_cfg['middle']
+                self.config.template_cfg['middle'],add_special_tokens=False
             )['input_ids']
             suffix_input_ids = self.tokenizer.tokenizer(
-                self.config.template_cfg['suffix']
+                self.config.template_cfg['suffix'],add_special_tokens=False
             )['input_ids']
         else:
             if not self.train_on_input:
@@ -230,7 +230,7 @@ class MyDataset(torch.utils.data.Dataset):
                 prompt = self.config.template_cfg['prefix'] + \
                     system_prompt + self.config.template_cfg['middle'] + question + self.config.template_cfg['suffix']
                 input_ids = [self.tokenizer.bos_token_id] + self.tokenizer.tokenizer(
-                    prompt, return_tensors=None
+                    prompt, return_tensors=None,add_special_tokens=False
                 )['input_ids']
                 for i in range(0, len(input_ids), step):
                     # ub = i+step
@@ -242,8 +242,8 @@ class MyDataset(torch.utils.data.Dataset):
                     indicator_list.append("save")
                     input_ids_list.append(suffix_input_ids)
             else:
-                system_input_ids = self.tokenizer.tokenizer(system_prompt, return_tensors=None)['input_ids']
-                prompt_input_ids = self.tokenizer.tokenizer(question, return_tensors=None)['input_ids']
+                system_input_ids = self.tokenizer.tokenizer(system_prompt, return_tensors=None, add_special_tokens=False)['input_ids']
+                prompt_input_ids = self.tokenizer.tokenizer(question, return_tensors=None, add_special_tokens=False)['input_ids']
                 if prefix_input_ids != None:
                     indicator_list.append("save")
                     input_ids_list.append(prefix_input_ids)
@@ -284,11 +284,11 @@ class MyDataset(torch.utils.data.Dataset):
                 question_list[-1] = question_list[-1] + self.config.template_cfg['suffix']
                 for q in question_list:
                     question_input_ids_list.append(
-                        self.tokenizer.tokenizer(q, return_tensors=None)['input_ids']
+                        self.tokenizer.tokenizer(q, return_tensors=None, add_special_tokens=False)['input_ids']
                     )
                 for s in system_prompt_list:
                     system_prompt_input_ids_list.append(
-                        self.tokenizer.tokenizer(s, return_tensors=None)['input_ids']
+                        self.tokenizer.tokenizer(s, return_tensors=None, add_special_tokens=False)['input_ids']
                     )
                 
                 sentence_input_ids_list:List[List[int]] = system_prompt_input_ids_list + question_input_ids_list
@@ -300,11 +300,11 @@ class MyDataset(torch.utils.data.Dataset):
             else:
                 for q in question_list:
                     question_input_ids_list.append(
-                        self.tokenizer.tokenizer(q, return_tensors=None)['input_ids']
+                        self.tokenizer.tokenizer(q, return_tensors=None, add_special_tokens=False)['input_ids']
                     )
                 for s in system_prompt_list:
                     system_prompt_input_ids_list.append(
-                        self.tokenizer.tokenizer(s, return_tensors=None)['input_ids']
+                        self.tokenizer.tokenizer(s, return_tensors=None, add_special_tokens=False)['input_ids']
                     )
 
                 if prefix_input_ids != None:

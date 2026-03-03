@@ -81,7 +81,7 @@ class Tokenizer:
         if check_consistency:
             whole_input:str = "".join(structured_input)
             tokenized_whole_input = self.tokenizer(
-                whole_input, return_tensors=None
+                whole_input, return_tensors=None,add_special_tokens=False
             )['input_ids']
             tokenized_whole_input_from_segement = list()
             for input_ids in tokenized_input_id_list:
@@ -144,7 +144,7 @@ class Tokenizer:
                     tokenized_whole_input_from_segement.extend(segement)
                 else:
                     tokenized_input_id_list[-1].append(
-                        self.tokenizer(segement, return_tensors=None)['input_ids']
+                        self.tokenizer(segement, return_tensors=None, add_special_tokens=False)['input_ids']
                     )
                     tokenized_whole_input_from_segement.extend(
                         tokenized_input_id_list[-1][-1]
@@ -152,7 +152,7 @@ class Tokenizer:
                     whole_input += segement
         if check_consistency:
             tokenized_whole_input = self.tokenizer(
-                whole_input, return_tensors=None
+                whole_input, return_tensors=None, add_special_tokens=False
             )['input_ids']
             assert tokenized_whole_input_from_segement == tokenized_whole_input, \
                 f"consistency check failed.\n{tokenized_whole_input_from_segement}\n{tokenized_whole_input}\n{whole_input}\n{structured_input}\n\n\n\n`{self.tokenizer.decode(tokenized_whole_input_from_segement)}`\n`{self.tokenizer.decode(tokenized_whole_input)}`"
@@ -386,7 +386,7 @@ class Tokenizer:
                 #     whole_input += segement
 
                 if structured_input_indicator[i][j] == 'abandoned':
-                    tokenized_input_id = self.tokenizer(segement, return_tensors=None)['input_ids']
+                    tokenized_input_id = self.tokenizer(segement, return_tensors=None, add_special_tokens=False)['input_ids']
                     # 插入register tokens
                     tokenized_input_id_add_register = self._insert_register_token(tokenized_input_id, regitser_token_id)
                     tokenized_input_id_list[-1].append(tokenized_input_id_add_register)
@@ -396,7 +396,7 @@ class Tokenizer:
                     whole_input += segement
                 else:
                     tokenized_input_id_list[-1].append(
-                        self.tokenizer(segement, return_tensors=None)['input_ids']
+                        self.tokenizer(segement, return_tensors=None,add_special_tokens=False)['input_ids']
                     )
                     tokenized_whole_input_from_segement.extend(
                         tokenized_input_id_list[-1][-1]

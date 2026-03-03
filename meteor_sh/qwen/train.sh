@@ -84,10 +84,10 @@ latest_log="${output_dir}/train_latest.log"
 
 export PYTHONPATH=$PYTHONPATH:$(pwd)
 # model 
-model_type="llama"
+model_type="qwen"
 # tokenizer_path, model_path, train_data_path 从命令行参数传入
-bos_token="<|begin_of_text|>"
-eos_token="<|end_of_text|>"
+bos_token="<|im_start|>"
+eos_token="<|im_end|>"
 # conf_version="v1"
 
 # training

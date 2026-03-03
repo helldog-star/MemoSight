@@ -24,7 +24,7 @@ import torch
 import torch.nn.functional as F
 import torch.utils.checkpoint
 from torch import nn
-
+from torch.nn import BCEWithLogitsLoss, CrossEntropyLoss, MSELoss
 # from ...activations import ACT2FN
 # from ...cache_utils import Cache, DynamicCache, StaticCache
 # from ...generation import GenerationMixin
@@ -1197,6 +1197,8 @@ class LlamaForCausalLM(LlamaPreTrainedModel, GenerationMixin):
         self.vocab_size = config.vocab_size
         self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
 
+        self.mtp_lambda = getattr(config, "mtp_lambda", 1.0)
+
         # Initialize weights and apply final processing
         self.post_init()
 
@@ -1321,7 +1323,58 @@ class LlamaForCausalLM(LlamaPreTrainedModel, GenerationMixin):
 
         loss = None
         if labels is not None:
-            loss = self.loss_function(logits=logits, labels=labels, vocab_size=self.config.vocab_size, **loss_kwargs)
+            # register_token_index 与 labels 已对齐：1 表示 MTP aux loss 区域
+            register_token_index = loss_kwargs.pop("register_token_index", None)
+
+            if register_token_index is not None:
+
+                register_token_index = register_token_index.to(labels.device).bool()
+                # MTP: register 位置不做 shift，当前位置 logits 直接监督当前位置 label
+                mtp_logits = logits[register_token_index]
+                mtp_labels = labels[register_token_index]
+
+                # LM: 先筛选出非 register token，再在筛选后的序列上做相邻错位
+                non_register_mask = ~register_token_index
+                filtered_lm_logits = logits[non_register_mask]
+                filtered_lm_labels = labels[non_register_mask]
+
+                shift_lm_logits = filtered_lm_logits[:-1].contiguous()
+                shift_lm_labels = filtered_lm_labels[1:].contiguous()
+                # 利用每个 batch 的非 register token 数量构造边界，避免创建 [B, T] 的 batch_idx 大张量
+                non_register_counts = non_register_mask.sum(dim=1)
+                if shift_lm_labels.numel() > 0:
+                    valid_shift_mask = torch.ones(shift_lm_labels.size(0), dtype=torch.bool, device=labels.device)
+                    boundary_pos = non_register_counts.cumsum(dim=0)[:-1] - 1
+                    boundary_pos = boundary_pos[(boundary_pos >= 0) & (boundary_pos < valid_shift_mask.size(0))]
+                    valid_shift_mask[boundary_pos] = False
+                else:
+                    valid_shift_mask = shift_lm_labels.new_zeros((0,), dtype=torch.bool)
+
+                safe_lm_logits = shift_lm_logits[valid_shift_mask]
+                safe_lm_labels = shift_lm_labels[valid_shift_mask]
+
+                zero_loss = logits.sum() * 0.0
+                ce_loss = CrossEntropyLoss(ignore_index=-100)
+                mtp_loss = (
+                    ce_loss(mtp_logits.float(), mtp_labels.to(mtp_logits.device))
+                    if mtp_labels.numel() > 0
+                    else zero_loss
+                )
+                lm_loss = (
+                    ce_loss(safe_lm_logits.float(), safe_lm_labels.to(safe_lm_logits.device))
+                    if safe_lm_labels.numel() > 0
+                    else zero_loss
+                )
+
+                self._last_mtp_loss = mtp_loss.detach().item()
+                self._last_lm_loss = lm_loss.detach().item()
+
+                loss = lm_loss + self.mtp_lambda * mtp_loss
+            
+            else:
+                loss = self.loss_function(logits, labels, self.config.vocab_size, **loss_kwargs)
+                self._last_lm_loss = loss.detach().item()
+                self._last_mtp_loss = 0.0
 
         if not return_dict:
             output = (logits,) + outputs[1:]
