@@ -1,0 +1,49 @@
+# Model
+./model/*
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+ours_infer_log/
+ours_train_log/
+eval_results/
+inference_results/
+sglang_inference_results/
+
+# debugs
+*debug*
+
+# Data
+data/train
+data/*
+data/train/dataset_cache/
+output/
+EOF
+data/train/train.jsonl
+data/train/train_debug.jsonl
+data/train/data.zip
+
+# tensorboard
+tensorboard/
+  
+# liuxin
+meteor_inference.sh
+meteor_train_lightthinker.sh
+meteor_evaluate.sh
+
+*.tar.gz
