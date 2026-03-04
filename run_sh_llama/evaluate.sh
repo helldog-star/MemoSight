@@ -27,8 +27,8 @@ dataset="$3"
 base_path="$4"
 comp_config="${5:-configs/LightThinker/llama/v1.json}"  # 第5个参数可选，默认为 configs/LightThinker/qwen/v1.json
 model_type="${6:-llama}"  # 第6个参数可选，默认为 qwen
-bos_token="${7:-<|im_start|>}"  # 第7个参数可选，默认为 <|im_start|>
-eos_token="${8:-<|im_end|>}"  # 第8个参数可选，默认为 <|im_end|>
+bos_token="${7:-<|begin_of_text|>}"  # 第7个参数可选，默认为 <|im_start|>
+eos_token="${8:-<|eot_id|>}"  # 第8个参数可选，默认为 <|im_end|>
 cache_size="${9:-1024}"  # 第9个参数可选，默认为 1024
 interaction="${10:-false}"  # 第10个参数可选，默认为 false
 
