@@ -34,6 +34,7 @@ tokenizer_path="$8"
 model_path="$9"
 train_data_path="${10}"
 conf_version="${11}"
+max_length="${12}"
 
 # 检查必需参数是否为空
 if [ -z "$root_dir" ] || [ -z "$init_tag" ] || [ -z "$use_EPL" ] || [ -z "$lr" ] || [ -z "$mode" ] || [ -z "$output_base_dir" ] || [ -z "$tokenizer_path" ] || [ -z "$model_path" ] || [ -z "$train_data_path" ]; then
@@ -87,12 +88,12 @@ export PYTHONPATH=$PYTHONPATH:$(pwd)
 model_type="llama"
 # tokenizer_path, model_path, train_data_path 从命令行参数传入
 bos_token="<|begin_of_text|>"
-eos_token="<|end_of_text|>"
+eos_token="<|eot_id|>"
 # conf_version="v1"
 
 # training
 # max_length=4096
-max_length=8192 # for apa mtp
+# max_length=8192 # for apa mtp
 lr_scheduler_type="cosine"
 epochs=5   #change to 1 for test
 # lr 从命令行参数传入，不再硬编码

@@ -63,7 +63,7 @@ model_short_tag="${model_tag}"
 model_type="llama"
 # tokenizer_path, model_path, train_data_path 从命令行参数传入
 bos_token="<|begin_of_text|>"
-eos_token="<|end_of_text|>"
+eos_token="<|eot_id|>"
 # compress_config="./configs/LightThinker/qwen/v1.json"
 
 # `model_path` is an optional argument
