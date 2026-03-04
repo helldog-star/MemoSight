@@ -195,7 +195,10 @@ def create_attention_for_aug_data_apa_mtp(
         assert index_state in ['compressed-prompt', 'compressed-output']
         start, end, l_inst, n_comp, n_continue = index_item
         
-        mask[end+l_inst+n_comp:, start:end+l_inst] = 0  # 让后续 token 无法看到 原始文本 和 压缩指令
+        # mask[end+l_inst+n_comp:, start-n_continue:end+l_inst] = 0  # 让后续 token 无法看到 原始文本 和 压缩指令
+        
+        # 将continue token视为begin of step，与原始文本相同对待，下一次生成看不到上一个step的continue token
+        mask[end+l_inst+n_comp:, start-n_continue:end+l_inst] = 0  # 让后续 token 无法看到 原始文本 和 压缩指令
         
         # # 1. attention_mask：让后续 token 无法看到 原始文本 和 压缩指令
         # if exclude_continue:
