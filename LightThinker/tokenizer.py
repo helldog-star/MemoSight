@@ -396,7 +396,7 @@ class Tokenizer:
                     whole_input += segement
                 else:
                     tokenized_input_id_list[-1].append(
-                        self.tokenizer(segement, return_tensors=None,add_special_tokens=False)['input_ids']
+                        self.tokenizer(segement, return_tensors=None, add_special_tokens=False)['input_ids']
                     )
                     tokenized_whole_input_from_segement.extend(
                         tokenized_input_id_list[-1][-1]

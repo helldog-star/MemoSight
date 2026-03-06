@@ -1372,7 +1372,7 @@ class LlamaForCausalLM(LlamaPreTrainedModel, GenerationMixin):
                 loss = lm_loss + self.mtp_lambda * mtp_loss
             
             else:
-                loss = self.loss_function(logits, labels, self.config.vocab_size, **loss_kwargs)
+                loss = self.loss_function(logits, labels, self.vocab_size, **loss_kwargs)
                 self._last_lm_loss = loss.detach().item()
                 self._last_mtp_loss = 0.0
 
