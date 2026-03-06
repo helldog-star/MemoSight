@@ -100,8 +100,8 @@ class MyDataset(torch.utils.data.Dataset):
                         
                         # 使用临时文件 + 重命名，避免其他进程读到不完整的文件
                         temp_cache_path = self.cache_path + '.tmp'
-                        torch.save(cache_data, temp_cache_path)
-                        os.rename(temp_cache_path, self.cache_path)
+                        # torch.save(cache_data, temp_cache_path)
+                        # os.rename(temp_cache_path, self.cache_path)
                         
                         print(f"[Rank {self.local_rank}] Cache saved!")
                         data_in_memory = True
