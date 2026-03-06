@@ -143,7 +143,7 @@ if [ $? -ne 0 ]; then
     echo "❌ epl_mtp_w3e-1_wo-apa训练失败，退出"
     exit 1
 fi
-inference_and_evaluate "epl_mtp_w3e-1_wo-apa" "normal" "sglang_inference" "./configs/LightThinker/qwen/v1.json"
+inference_and_evaluate "epl_mtp_w3e-1_wo-apa" "anchor-thought" "inference" "./configs/LightThinker/qwen/v1.json"
 
 echo ""
 echo "=========================================="
