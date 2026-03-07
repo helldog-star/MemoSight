@@ -129,7 +129,7 @@ inference_and_evaluate() {
 
 
 # ==================== 模型: llama_epl_apa_mtp_w3e-1 ====================
-train_model "llama_epl_apa_mtp_w3e-1" "True" "2e-5" "aug-wo-pc-apa-mtp" "configs/epl_apa_mtp.json" "apa_mtp" "8192"
+train_model "llama_epl_apa_mtp_w3e-1" "True" "2e-5" "aug-wo-pc-apa-mtp" "./configs/epl_apa_mtp.json" "apa_mtp" "8192"
 if [ $? -ne 0 ]; then
     echo "❌ llama_epl_apa_mtp_w3e-1训练失败，退出"
     exit 1
