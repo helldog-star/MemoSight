@@ -137,22 +137,22 @@ fi
 inference_and_evaluate "llama_epl_apa_mtp_w3e-1" "anchor-thought" "inference" "./configs/LightThinker/llama/apa_mtp.json"
 
 
-# ==================== 模型: llama_epl_apa ====================
-train_model "llama_epl_apa" "True" "2e-5" "aug-wo-pc" "None" "adaptive_v1" "4096"
-if [ $? -ne 0 ]; then
-    echo "❌ llama_epl_apa训练失败，退出"
-    exit 1
-fi
-inference_and_evaluate "llama_epl_apa" "anchor-thought" "inference" "./configs/LightThinker/llama/adaptive_v1.json"
+# # ==================== 模型: llama_epl_apa ====================
+# train_model "llama_epl_apa" "True" "2e-5" "aug-wo-pc" "None" "adaptive_v1" "4096"
+# if [ $? -ne 0 ]; then
+#     echo "❌ llama_epl_apa训练失败，退出"
+#     exit 1
+# fi
+# inference_and_evaluate "llama_epl_apa" "anchor-thought" "inference" "./configs/LightThinker/llama/adaptive_v1.json"
 
 
-# ==================== 模型: llama_epl ====================
-train_model "llama_epl" "True" "2e-5" "aug-wo-pc" "None" "v1" "4096"
-if [ $? -ne 0 ]; then
-    echo "❌ llama_epl训练失败，退出"
-    exit 1
-fi
-inference_and_evaluate "llama_epl" "anchor-thought" "inference" "./configs/LightThinker/llama/v1.json"
+# # ==================== 模型: llama_epl ====================
+# train_model "llama_epl" "True" "2e-5" "aug-wo-pc" "None" "v1" "4096"
+# if [ $? -ne 0 ]; then
+#     echo "❌ llama_epl训练失败，退出"
+#     exit 1
+# fi
+# inference_and_evaluate "llama_epl" "anchor-thought" "inference" "./configs/LightThinker/llama/v1.json"
 
 echo ""
 echo "=========================================="
