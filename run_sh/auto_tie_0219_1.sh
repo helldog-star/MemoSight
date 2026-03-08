@@ -47,9 +47,10 @@ train_model() {
     local mode=$4
     local aux_config=$5
     local conf_version=$6
+    local max_length=$7
     
     echo "=======🚀 ${model_tag}开始训练 ======="
-    bash ${TRAIN_SCRIPT} "${ROOT_DIR}" "${model_tag}" "${use_EPL}" "${lr}" "${mode}" "${aux_config}" "${OUTPUT_BASE_DIR}" "${TOKENIZER_PATH}" "${MODEL_PATH}" "${TRAIN_DATA_PATH}" "${conf_version}"
+    bash ${TRAIN_SCRIPT} "${ROOT_DIR}" "${model_tag}" "${use_EPL}" "${lr}" "${mode}" "${aux_config}" "${OUTPUT_BASE_DIR}" "${TOKENIZER_PATH}" "${MODEL_PATH}" "${TRAIN_DATA_PATH}" "${conf_version}" "${max_length}"
     if [ $? -ne 0 ]; then
         echo "❌ ${model_tag}训练失败"
         return 1
@@ -128,7 +129,7 @@ inference_and_evaluate() {
 
 
 # ==================== 模型: epl_apa_mtp_w3e-1 ====================
-train_model "epl_apa_mtp_w3e-1" "True" "2e-5" "aug-wo-pc-apa-mtp" "configs/epl_apa_mtp.json" "apa_mtp"
+train_model "epl_apa_mtp_w3e-1" "True" "2e-5" "aug-wo-pc-apa-mtp" "configs/epl_apa_mtp.json" "apa_mtp" "8192"
 if [ $? -ne 0 ]; then
     echo "❌ epl_apa_mtp_w3e-1训练失败，退出"
     exit 1
