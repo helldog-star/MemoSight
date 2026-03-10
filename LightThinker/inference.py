@@ -1839,7 +1839,11 @@ def mtp_generate_and_validate(model, last_hidden_state, input_ids, attention_mas
     return accepted_tokens
 
 
-
+# mtp register generate最快实现版本
+# 无法和普通sentence_level_generate做到完全一致，因为：
+# 1.数值精度
+# 2.多token和单token存在计算差异计算 
+# 导致某些位置（例如 to 和 for）logit差异过小而选择了不同的token
 @torch.no_grad()
 def _sentence_level_mtp_register_generate(
     model: Union[LlamaForCausalLM, Qwen2ForCausalLM],
