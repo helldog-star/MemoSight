@@ -149,7 +149,15 @@ class DebugUtils:
 class InferenceUtils:
 
     @classmethod
-    def get_predicted_token_ids(cls, model_output, idx:int=-1,token_utils= None,repetition_penalty:float=1.0,tokenizer=None) -> int:
+    def get_predicted_token_ids(
+        cls,
+        model_output,
+        idx:int=-1,
+        token_utils=None,
+        repetition_penalty:float=1.0,
+        tokenizer=None,
+        extra_generated_ids:List[int]=None,
+    ) -> int:
         # [bs, seq_length, vocab_size]
         logits = model_output.logits    
         # [vocab_size]
@@ -159,6 +167,8 @@ class InferenceUtils:
         if token_utils is not None and repetition_penalty != 1.0:
             #获取上下文token
             generated_ids = set(token_utils.show_output_input_ids) | set(token_utils.show_prompt_input_ids)
+            if extra_generated_ids:
+                generated_ids = generated_ids | set(extra_generated_ids)
             #过滤special token
             if tokenizer is not None:
                 special_ids = set(tokenizer.all_special_ids)
@@ -504,6 +514,70 @@ class AttentionUtils:
                     0:comp_end_r-comp_start_r,
                 ]
         
+        return self.delta_attn[0:new_length, 0:origin_length+new_length].unsqueeze(dim=0).unsqueeze(dim=0)
+
+    def update_attention_local_for_mtp_register(
+        self,
+        origin_length:int,
+        new_input_ids:List[int],
+        register_token_id:int,
+        indicator:List[int]=None,
+    ) -> torch.Tensor:
+        """
+        local attention for [content + register...]:
+        - register query can attend all historical non-register tokens (origin part)
+        - register query cannot attend other registers in current step
+        - register query can attend itself
+        """
+        new_length = len(new_input_ids)
+        self.delta_attn[0:new_length, 0:origin_length+new_length] = self.show_value
+        self.delta_attn[0:new_length, origin_length:origin_length+new_length] = self.base_attn[0:new_length, 0:new_length]
+
+        if indicator is not None:
+            text_start, text_end, n_inst, comp_start_c, comp_end_c, n_cont = indicator
+            n_prefix = new_length - (comp_end_c - comp_start_c + n_cont)
+            assert n_prefix >= 0
+            comp_start_r = n_prefix
+            comp_end_r = n_prefix + (comp_end_c - comp_start_c)
+
+            diagonal = self.attention_config['diagonal']
+            see_current = self.attention_config['see_current']
+            bi_attention = self.attention_config['bi_attention']
+
+            self.delta_attn[
+                comp_end_r:,
+                text_start:text_end
+            ] = self.mask_value
+
+            if see_current:
+                self.delta_attn[
+                    comp_start_r:comp_end_r,
+                    0:text_start
+                ] = self.mask_value
+
+            if bi_attention:
+                self.delta_attn[
+                    comp_start_r:comp_end_r,
+                    comp_start_c:comp_end_c
+                ] = self.show_value
+            
+            if diagonal:
+                self.delta_attn[
+                    comp_start_r:comp_end_r,
+                    comp_start_c:comp_end_c
+                ] = self.diagonal_attn[
+                    0:comp_end_r-comp_start_r,
+                    0:comp_end_r-comp_start_r,
+                ]
+
+        is_register = [tok == register_token_id for tok in new_input_ids]
+        for q_idx in range(new_length):
+            if not is_register[q_idx]:
+                continue
+            for k_idx in range(new_length):
+                if is_register[k_idx] and k_idx != q_idx:
+                    self.delta_attn[q_idx, origin_length + k_idx] = self.mask_value
+
         return self.delta_attn[0:new_length, 0:origin_length+new_length].unsqueeze(dim=0).unsqueeze(dim=0)
         
     def reset(self):
@@ -1277,6 +1351,10 @@ def _sentence_level_generate(
         # 1. construct attention_mask
         if predicted_token_id == comp_config.split_token_id:
             IS_COMP_MODE = True
+
+            # print
+            print(tokenizer.decode(token_utils._current_input_ids))
+
             if use_EPL:
                 cot_length = int(position_ids[0][0].item()) + 2 - cot_start
             else:
@@ -1426,6 +1504,7 @@ def _sentence_level_generate(
 
 
 
+# 260309 尚未验证traditional mtp的推理准确性，最差情况与标准推理一致
 @torch.no_grad()
 def _sentence_mtp_level_generate(
     model: Union[LlamaForCausalLM, Qwen2ForCausalLM],
@@ -1445,7 +1524,6 @@ def _sentence_mtp_level_generate(
     use_EPL:bool=False,
     repetition_penalty:float=1.0,
     aux_config: Dict=None,
-
 ) -> Tuple[str,str]:
     assert update_attention_method in ["global", "local"]
 
@@ -1762,6 +1840,354 @@ def mtp_generate_and_validate(model, last_hidden_state, input_ids, attention_mas
 
 
 
+@torch.no_grad()
+def _sentence_level_mtp_register_generate(
+    model: Union[LlamaForCausalLM, Qwen2ForCausalLM],
+    tokenizer: Tokenizer,
+    comp_config: Config,
+    max_new_tokens: int,
+    attention_config:Dict,
+    prefill_compress:bool,
+    exclude_continue:bool,
+    attn_utils:AttentionUtils,
+    kv_utils:KVUtils,
+    token_utils:TokenUtils,
+    predicted_token_id:int,
+    last_hidden_state: torch.Tensor,
+    update_attention_method:str="global",
+    use_EPL:bool=False,
+    repetition_penalty:float=1.0,
+    aux_config: Dict=None,
+
+) -> Tuple[str,str]:
+    assert update_attention_method in ["global", "local"]
+
+    import sys
+    # 将所有 print 输出重定向到临时文件
+    sys.stdout = open('/mnt/lxy/RRcot/debug_output.txt', 'w', encoding='utf-8')
+
+    new_token_counters = 0
+    eos_token_id = tokenizer.eos_token_id
+    global_start:int = len(token_utils._whole_input_ids)
+    local_start:int = len(token_utils._current_input_ids)
+
+    use_compression_all_count = 0
+    cot_start = global_start
+    # 当 verify 阶段提前确认下一个 control token 为 split 时，记录其位置用于下一轮 cot_length 计算
+    pending_split_pos = None
+    # van_cot_start = global_start
+
+    # register token count 默认为 3，因为训练时 mtp register offset = random.randint(0, 4)
+    if aux_config is not None:
+        register_token_count = int(aux_config.get("register_token_count", 3))
+    register_token_count = max(0, register_token_count)
+
+    # 在首次进入 split 分支前也需要一个可用 position_ids 基准
+    position_ids = token_utils.get_position_ids()[:, -1:]
+
+    assert local_start == kv_utils.get_cache()._seen_tokens, \
+        f"{local_start} == {kv_utils.get_cache()._seen_tokens}"
+
+
+    while predicted_token_id != eos_token_id and new_token_counters < max_new_tokens:
+            IS_COMP_MODE:bool = False
+            token_utils.show_output_input_ids.append(predicted_token_id)
+            step_input_ids = [predicted_token_id]
+
+            # 1. construct attention_mask / step tokens
+            if predicted_token_id == comp_config.split_token_id:
+                IS_COMP_MODE = True
+
+                if use_EPL:
+                    if pending_split_pos is not None:
+                        # pending_split_pos 是 <|splitter|> position id
+                        cot_length = pending_split_pos + 1 - cot_start
+                        pending_split_pos = None
+                    else:
+                        last_pos_raw = int(token_utils.get_position_ids()[0, -1].item())
+                        last_pos_epl = last_pos_raw - use_compression_all_count
+                        cot_length = last_pos_epl + 2 - cot_start
+                else:
+                    last_pos_raw = int(token_utils.get_position_ids()[0, -1].item())
+                    cot_length = last_pos_raw + 2 - cot_start
+
+                step_input_ids.extend(
+                    comp_config.get_output_comp_token_id(cot_length=cot_length)
+                )
+                step_input_ids.append(
+                    comp_config.continue_token_id
+                )
+                if register_token_count > 0:
+                    step_input_ids.extend([comp_config.register_token_id] * register_token_count)
+                new_length = len(step_input_ids)
+                if update_attention_method == 'global':
+                    origin_length = len(token_utils._whole_input_ids)
+                    indicator = [
+                        global_start,
+                        origin_length + 1,  # the last token has not been included yet.
+                        0,
+                        origin_length + 1,
+                        origin_length + 1 + len(comp_config.get_output_comp_token_id(cot_length=cot_length)),
+                        1,
+                    ]
+                    attention_mask = attn_utils.update_attention_global(
+                        new_length=new_length,
+                        indicator=indicator,
+                    )
+                else:
+                    origin_length = len(token_utils._current_input_ids)
+                    indicator = [
+                        local_start,
+                        origin_length + 1,
+                        0,
+                        origin_length + 1,
+                        origin_length + 1 + len(comp_config.get_output_comp_token_id(cot_length=cot_length)),
+                        1,
+                    ]
+                    attention_mask = attn_utils.update_attention_local_for_mtp_register(
+                        origin_length=origin_length,
+                        new_input_ids=step_input_ids,
+                        register_token_id=comp_config.register_token_id,
+                        indicator=indicator,
+                    )
+            else:
+                # register token 作为辅助预测 token，推理时仅临时插入，随后从 cache 中删除
+                if register_token_count > 0:
+                    step_input_ids.extend([comp_config.register_token_id] * register_token_count)
+
+                new_length = len(step_input_ids)
+                if update_attention_method == 'global':
+                    origin_length = len(token_utils._whole_input_ids)
+                    attention_mask = attn_utils.update_attention_global(
+                        new_length=new_length,
+                        indicator=None
+                    )
+                else:
+                    origin_length = len(token_utils._current_input_ids)
+                    attention_mask = attn_utils.update_attention_local_for_mtp_register(
+                        origin_length=origin_length,
+                        new_input_ids=step_input_ids,
+                        register_token_id=comp_config.register_token_id,
+                        indicator=None,
+                    )
+
+            # The line below marks the end of the mask during the reduce process, 
+            # primarily for the purpose of reduction.
+            _local_mask_end = len(token_utils._current_input_ids) + 1
+            # 2. position_ids and input_ids
+            if token_utils.max_length < len(step_input_ids) + token_utils._seen_tokens:
+                # exceed length
+                break
+
+            input_ids, position_ids = token_utils.set_input_ids(step_input_ids, return_tensors=True)
+            # if IS_COMP_MODE:
+            #     van_cot_start = int(position_ids[0][-1].item()) + 1
+            if use_EPL:
+                position_ids = position_ids - use_compression_all_count
+
+            if use_EPL and IS_COMP_MODE:
+                # 这里 position_ids 是 '<|splitter|><|o_0|><|o_1|><|o_2|><|o_3|><|o_4|><|o_5|><|o_6|><|o_7|><|o_8|><|continue|><|register_1|><|register_2|>...' 对应的正常位置编码
+                # cot_start 是 cot first token position id，cot_end 是 <|o_0|> position id
+                # cot_end - cot_start 是算上<|splitter|>的 cot 长度，也就是 n_abandoned
+                # 训练时 <|splitter|> 也是算在 n_abandoned 之内的
+
+                # step1: 计算'<|splitter|><|o_0|><|o_1|><|o_2|><|o_3|><|o_4|><|o_5|><|o_6|><|o_7|><|o_8|><|continue|>'的位置编码
+                # position_ids[0][0] 是 <|splitter|> position id
+                cur_split_end = int(position_ids[0][0].item()) + 1
+                step = (cur_split_end - cot_start) / len(comp_config.get_output_comp_token_id(cot_length=(cur_split_end - cot_start)))
+                indicator = [
+                        cot_start, # cot first token position id
+                        cur_split_end, # <|o_1|> position id
+                        step, # 压缩步长
+                        len(comp_config.get_output_comp_token_id(cot_length=(cur_split_end - cot_start))) # 压缩token数量
+                    ]
+                # 更新cot位置
+                # 这里算上 <|continue|>，对应下一段 cot 的 first token position id
+                position_ids = token_utils.use_epl_for_compression(position_ids, indicator)
+                use_compression_all_count += len(comp_config.get_output_comp_token_id(cot_length=(cur_split_end - cot_start)))
+                cot_start = cur_split_end + 1
+                
+                # step2: 这里补齐register token位置编码
+                if register_token_count > 0:
+                    last_pos = int(position_ids[0, -1].item())
+                    register_position_ids = torch.arange(
+                        last_pos + 1,
+                        last_pos + 1 + register_token_count,
+                        device=position_ids.device,
+                        dtype=position_ids.dtype,
+                    ).unsqueeze(0)
+                    position_ids = torch.cat([position_ids, register_position_ids], dim=1)
+            elif IS_COMP_MODE:
+                # 非 EPL 下使用原始坐标更新 cot_start
+                cur_split_end = int(position_ids[0][0].item()) + 1
+                cot_start = cur_split_end + 1
+
+            assert input_ids.shape[1] == position_ids.shape[1], \
+                f"shape mismatch: input_ids={input_ids.shape}, position_ids={position_ids.shape}"
+
+            model_output = model(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                past_key_values=kv_utils.get_cache(),
+                use_cache=True,
+                return_dict=True,
+                position_ids=position_ids,
+            )
+
+            if IS_COMP_MODE:
+                # compression 分支先删除被压缩的原文，再删除临时 register
+                start = local_start
+                end = _local_mask_end
+                kv_utils.reduce_cache(start=start, end=end)
+                token_utils.reduce_input_ids(start=start, end=end)
+                if register_token_count > 0:
+                    reg_start = kv_utils.get_cache()._seen_tokens - register_token_count
+                    reg_end = kv_utils.get_cache()._seen_tokens
+                    kv_utils.reduce_cache(start=reg_start, end=reg_end)
+                    token_utils.reduce_input_ids(start=reg_start, end=reg_end)
+                global_start = len(token_utils._whole_input_ids)
+                local_start = len(token_utils._current_input_ids)
+            else:
+                # 非压缩分支只删除临时 register
+                if register_token_count > 0:
+                    reg_start = _local_mask_end
+                    reg_end = _local_mask_end + register_token_count
+                    kv_utils.reduce_cache(start=reg_start, end=reg_end)
+                    token_utils.reduce_input_ids(start=reg_start, end=reg_end)
+
+            # 基于 [anchor + register...] 的 logits 产出 draft tokens（压缩/非压缩共用）
+            draft_len = register_token_count + 1
+            draft_tokens: List[int] = []
+            for offset in range(draft_len):
+                idx = -(draft_len - offset)
+                draft_tokens.append(
+                    InferenceUtils.get_predicted_token_ids(
+                        model_output=model_output,
+                        idx=idx,
+                        token_utils=token_utils,
+                        repetition_penalty=repetition_penalty,
+                        tokenizer=tokenizer,
+                        # 模拟逐 token 草稿生成：当前位置前的 draft 前缀也参与 repetition 集合
+                        extra_generated_ids=draft_tokens,
+                    )
+                )
+
+            # 若首个 draft 已是控制 token，直接进入下一轮分支处理
+            if draft_tokens[0] == comp_config.split_token_id or draft_tokens[0] == eos_token_id:
+                if draft_tokens[0] == comp_config.split_token_id:
+                    tail_raw = int(token_utils.get_position_ids()[0, -1].item())
+                    pending_split_pos = tail_raw - use_compression_all_count + 1 if use_EPL else tail_raw + 1
+                predicted_token_id = draft_tokens[0]
+                accepted_count = 1
+            # 无 register 时退化为普通单步预测
+            elif len(draft_tokens) == 1:
+                predicted_token_id = draft_tokens[0]
+                accepted_count = 1
+            else:
+                # 验证阶段：喂入 draft 序列，验证后续 token 的一致性，并获取“下一个 token”候选
+                verify_new_length = len(draft_tokens)
+                if token_utils.max_length < verify_new_length + token_utils._seen_tokens:
+                    predicted_token_id = draft_tokens[0]
+                    accepted_count = 1
+                else:
+                    if update_attention_method == 'global':
+                        verify_attention_mask = attn_utils.update_attention_global(
+                            new_length=verify_new_length,
+                            indicator=None
+                        )
+                    else:
+                        verify_attention_mask = attn_utils.update_attention_local(
+                            origin_length=len(token_utils._current_input_ids),
+                            new_length=verify_new_length,
+                            indicator=None
+                        )
+
+                    verify_input_ids, verify_position_ids = token_utils.set_input_ids(
+                        draft_tokens, return_tensors=True
+                    )
+                    if use_EPL:
+                        verify_position_ids = verify_position_ids - use_compression_all_count
+
+                    verify_output = model(
+                        input_ids=verify_input_ids,
+                        attention_mask=verify_attention_mask,
+                        past_key_values=kv_utils.get_cache(),
+                        use_cache=True,
+                        return_dict=True,
+                        position_ids=verify_position_ids,
+                    )
+
+                    verify_preds: List[int] = []
+                    for pos in range(verify_new_length):
+                        idx = -(verify_new_length - pos)
+                        verify_preds.append(
+                            InferenceUtils.get_predicted_token_ids(
+                                model_output=verify_output,
+                                idx=idx,
+                                token_utils=token_utils,
+                                repetition_penalty=repetition_penalty,
+                                tokenizer=tokenizer,
+                                # 模拟逐 token 解码：当前位置之前的 draft 前缀也纳入 repetition 集合
+                                extra_generated_ids=draft_tokens[:pos+1],
+                            )
+                        )
+
+                    # 固定接受第一个token；验证 d2..dk 是否匹配
+                    accepted_len = 1
+                    for i in range(verify_new_length - 1):
+                        if verify_preds[i] == draft_tokens[i + 1]:
+                            accepted_len += 1
+                        else:
+                            break
+
+                    # 移除未通过验证的尾部 token
+                    if accepted_len < verify_new_length:
+                        trim = verify_new_length - accepted_len
+                        trim_start = kv_utils.get_cache()._seen_tokens - trim
+                        trim_end = kv_utils.get_cache()._seen_tokens
+                        kv_utils.reduce_cache(start=trim_start, end=trim_end)
+                        token_utils.reduce_input_ids(start=trim_start, end=trim_end)
+
+                    # 额外吞并已验证通过的 token（除了当前已写入的第一个 token）
+                    # 注意：若遇到 split/eos，不在本轮直接吞并，交给下一轮走原有分支逻辑（含 indicator）
+                    control_token = None
+                    extra_accepted: List[int] = []
+                    for tok in draft_tokens[1:accepted_len]:
+                        if tok == comp_config.split_token_id or tok == eos_token_id:
+                            control_token = tok
+                            break
+                        extra_accepted.append(tok)
+
+                    # 若遇到控制token，需要把“多接受但不该吞并”的尾部从 cache 里回滚掉
+                    effective_accepted_len = 1 + len(extra_accepted)
+                    if effective_accepted_len < accepted_len:
+                        trim = accepted_len - effective_accepted_len
+                        trim_start = kv_utils.get_cache()._seen_tokens - trim
+                        trim_end = kv_utils.get_cache()._seen_tokens
+                        kv_utils.reduce_cache(start=trim_start, end=trim_end)
+                        token_utils.reduce_input_ids(start=trim_start, end=trim_end)
+                        accepted_len = effective_accepted_len
+                    
+
+                    for tok in extra_accepted:
+                        token_utils.show_output_input_ids.append(tok)
+
+                    accepted_count = accepted_len
+                    if control_token is not None:
+                        if control_token == comp_config.split_token_id:
+                            tail_raw = int(token_utils.get_position_ids()[0, -1].item())
+                            pending_split_pos = tail_raw - use_compression_all_count + 1 if use_EPL else tail_raw + 1
+                        predicted_token_id = control_token
+                    else:
+                        # 下一轮从“最后一个已接受 token 的下一 token 预测”继续
+                        predicted_token_id = verify_preds[accepted_len - 1]
+
+            new_token_counters += accepted_count
+
+    token_utils.show_output_input_ids.append(predicted_token_id)
+    # return tokenizer.decode(token_utils._whole_input_ids)
+    return tokenizer.decode(token_utils.show_prompt_input_ids), tokenizer.decode(token_utils.show_output_input_ids)
+
 
 
 
@@ -1844,8 +2270,9 @@ def generate(
                 repetition_penalty=repetition_penalty,
             )
         else:
-            mtp_depth = aux_config.get("mtp_depth", 0)
-            prompt, output = _sentence_mtp_level_generate(
+
+            # mtp register generation
+            prompt, output = _sentence_level_mtp_register_generate(
                 model=model,
                 tokenizer=tokenizer,
                 comp_config=comp_config,
@@ -1861,9 +2288,30 @@ def generate(
                 update_attention_method=update_attention_method,
                 use_EPL=use_EPL,
                 repetition_penalty=repetition_penalty,
-                mtp_depth=mtp_depth,
                 aux_config=aux_config
             )
+
+            # # traditional mtp generation
+            # mtp_depth = aux_config.get("mtp_depth", 0)
+            # prompt, output = _sentence_mtp_level_generate(
+            #     model=model,
+            #     tokenizer=tokenizer,
+            #     comp_config=comp_config,
+            #     max_new_tokens=max_new_tokens,
+            #     attention_config=attention_config,
+            #     prefill_compress=prefill_compress,
+            #     exclude_continue=exclude_continue,
+            #     attn_utils=attn_utils,
+            #     kv_utils=kv_utils,
+            #     token_utils=token_utils,
+            #     predicted_token_id=predicted_token_id,
+            #     last_hidden_state=last_hidden_state,
+            #     update_attention_method=update_attention_method,
+            #     use_EPL=use_EPL,
+            #     repetition_penalty=repetition_penalty,
+            #     mtp_depth=mtp_depth,
+            #     aux_config=aux_config
+            # )
     
     del kv_utils
     return prompt, output
