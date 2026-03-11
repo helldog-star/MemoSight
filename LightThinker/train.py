@@ -150,7 +150,15 @@ class MTPLossCallback(TrainerCallback):
                 global_avg_lm = local_lm_sum / max(local_micro_count, 1.0)
                 global_avg_mtp = local_mtp_sum / max(local_micro_count, 1.0)
 
+            model = kwargs.get("model", None)
+            if model is not None and hasattr(model, "module"):
+                model = model.module
+            mtp_lambda = float(getattr(model, "mtp_lambda", 1.0)) if model is not None else 1.0
+            global_avg_total = global_avg_lm + mtp_lambda * global_avg_mtp
+
             # 写入 Log (Trainer 会自动发送给 TensorBoard)
+            # 覆盖 Trainer 默认 loss，使终端显示口径与 lm_loss/mtp_loss 一致
+            logs['loss'] = round(global_avg_total, 4)
             logs['lm_loss'] = round(global_avg_lm, 4)
             logs['mtp_loss'] = round(global_avg_mtp, 4)
             
