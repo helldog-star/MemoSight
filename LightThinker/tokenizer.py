@@ -365,7 +365,7 @@ class Tokenizer:
         # register token id
         regitser_token_id = self.tokenizer.convert_tokens_to_ids(regitser_token)
         # mtp register offset
-        register_mtp_offset = random.randint(1, 4)
+        register_mtp_offset = random.randint(1, 4) 
         
         for i, segement_list in enumerate(structured_input):
             tokenized_input_id_list.append(list())
