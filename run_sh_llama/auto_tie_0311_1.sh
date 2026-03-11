@@ -3,28 +3,28 @@
 # ==================== 路径配置 ====================
 # 所有路径统一在此设置，便于在不同服务器上运行
 # ROOT_DIR="/zhaorunsong/RRcot"  # 项目根目录
-ROOT_DIR="/mnt/zhaorunsong/lx/RRcot" 
+ROOT_DIR="/home/zhaorunsong.zrs/repo/AutoRRcotv13/RRcot" 
 INFERENCE_ROOT_DIR="${ROOT_DIR}/LightThinker"  # 推理脚本使用的代码根目录
 
 # 输出路径配置
-OUTPUT_BASE_DIR="/mnt/zhaorunsong/lx/rrcot_test"  # 所有输出（训练、推理）的基础目录
+OUTPUT_BASE_DIR="/tmp/hx/rrcot"  # 所有输出（训练、推理）的基础目录
 
 # 模型和Tokenizer路径配置
-TOKENIZER_PATH="/mnt/zhaorunsong/models/meta-llama/Llama-3.2-1B-Instruct"  # Tokenizer路径
-MODEL_PATH="/mnt/zhaorunsong/models/meta-llama/Llama-3.2-1B-Instruct"  # 预训练模型路径
+TOKENIZER_PATH="/tmp/hx/meta-llama/Llama-3.1-8B-Instruct"  # Tokenizer路径
+MODEL_PATH="/tmp/hx/meta-llama/Llama-3.1-8B-Instruct"  # 预训练模型路径
 
 # 训练数据路径配置
-TRAIN_DATA_PATH="/mnt/zhaorunsong/lx/RRcot/data/train_test.jsonl"  # 训练数据路径
+TRAIN_DATA_PATH="/home/zhaorunsong.zrs/repo/RRcot/data/train/train.jsonl"  # 训练数据路径
 
 # Conda环境配置（用于sglang_inference.sh）
-CONDA_SH_PATH="/mnt/zhaorunsong/anaconda3/etc/profile.d/conda.sh"  # Conda初始化脚本路径
-# CONDA_SH_PATH="/opt/conda/etc/profile.d/conda.sh"
-CONDA_ENV_NAME="sglang"  # Conda环境名称
+# CONDA_SH_PATH="/mnt/zhaorunsong/anaconda3/etc/profile.d/conda.sh"  # Conda初始化脚本路径
+CONDA_SH_PATH="/opt/conda/etc/profile.d/conda.sh"
+CONDA_ENV_NAME="niah"  # Conda环境名称
 
 # ==================== 推理和评估配置 ====================
 # 设置推理和评估的默认参数
 REPETITION_PENALTY="1.1"  # 重复惩罚系数
-CKPT="39"  # 检查点编号，可以根据实际情况修改
+CKPT="1305"  # 检查点编号，可以根据实际情况修改
 DATASETS=("bbh" "gpqa" "gsm8k" "mmlu")  # 要评估的数据集
 
 # 获取脚本所在目录
@@ -47,9 +47,10 @@ train_model() {
     local mode=$4
     local aux_config=$5
     local conf_version=$6
-    
+    local max_length=$7
+
     echo "=======🚀 ${model_tag}开始训练 ======="
-    bash ${TRAIN_SCRIPT} "${ROOT_DIR}" "${model_tag}" "${use_EPL}" "${lr}" "${mode}" "${aux_config}" "${OUTPUT_BASE_DIR}" "${TOKENIZER_PATH}" "${MODEL_PATH}" "${TRAIN_DATA_PATH}" "${conf_version}"
+    bash ${TRAIN_SCRIPT} "${ROOT_DIR}" "${model_tag}" "${use_EPL}" "${lr}" "${mode}" "${aux_config}" "${OUTPUT_BASE_DIR}" "${TOKENIZER_PATH}" "${MODEL_PATH}" "${TRAIN_DATA_PATH}" "${conf_version}" "${max_length}"
     if [ $? -ne 0 ]; then
         echo "❌ ${model_tag}训练失败"
         return 1
@@ -127,13 +128,21 @@ inference_and_evaluate() {
 
 
 
-# ==================== 模型: epl_apa_mtp_w3e-1 ====================
-# train_model "epl_apa_mtp_w3e-1" "True" "2e-5" "aug-wo-pc-apa-mtp" "configs/epl_apa_mtp.json" "apa_mtp"
-# if [ $? -ne 0 ]; then
-#     echo "❌ epl_apa_mtp_w3e-1训练失败，退出"
-#     exit 1
-# fi
-inference_and_evaluate "epl_apa_mtp_w3e-1" "anchor-thought" "inference" "./configs/LightThinker/llama/apa_mtp.json"
+# ==================== 模型: llama_epl_apa_mtp_w3e-1 ====================
+train_model "llama_epl_apa_mtp_w3e-1_0311" "True" "2e-5" "aug-wo-pc-apa-mtp" "./configs/epl_apa_mtp.json" "apa_mtp" "8192"
+if [ $? -ne 0 ]; then
+    echo "❌ llama_epl_apa_mtp_w3e-1_0311训练失败，退出"
+    exit 1
+fi
+inference_and_evaluate "llama_epl_apa_mtp_w3e-1_0311" "anchor-thought" "inference" "./configs/LightThinker/llama/apa_mtp.json"
+
+# ==================== 模型: llama_lightThinker ====================
+train_model "llama_epl_apa_0311" "True" "2e-5" "aug-wo-pc" "None" "adaptive_v1" "4096"
+if [ $? -ne 0 ]; then
+    echo "❌ llama_epl_apa_0311训练失败，退出"
+    exit 1
+fi
+inference_and_evaluate "llama_epl_apa_0311" "anchor-thought" "inference" "./configs/LightThinker/llama/adaptive_v1.json"
 
 
 echo ""

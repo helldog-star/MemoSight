@@ -14,7 +14,7 @@ TOKENIZER_PATH="/mnt/zhaorunsong/models/meta-llama/Llama-3.2-1B-Instruct"  # Tok
 MODEL_PATH="/mnt/zhaorunsong/models/meta-llama/Llama-3.2-1B-Instruct"  # 预训练模型路径
 
 # 训练数据路径配置
-TRAIN_DATA_PATH="/mnt/zhaorunsong/lx/RRcot/data/train_test.jsonl"  # 训练数据路径
+TRAIN_DATA_PATH="/mnt/zhaorunsong/lx/RRcot/data/train/train_test.jsonl"  # 训练数据路径
 
 # Conda环境配置（用于sglang_inference.sh）
 CONDA_SH_PATH="/mnt/zhaorunsong/anaconda3/etc/profile.d/conda.sh"  # Conda初始化脚本路径
@@ -128,19 +128,19 @@ inference_and_evaluate() {
 
 
 # ==================== 模型: epl_apa_mtp_w3e-1 ====================
-# train_model "epl_apa_mtp_w3e-1" "True" "2e-5" "aug-wo-pc-apa-mtp" "configs/epl_apa_mtp.json" "apa_mtp"
-# if [ $? -ne 0 ]; then
-#     echo "❌ epl_apa_mtp_w3e-1训练失败，退出"
-#     exit 1
-# fi
-# inference_and_evaluate "epl_apa_mtp_w3e-1" "anchor-thought" "inference" "./configs/LightThinker/llama/apa_mtp.json"
-
-
-train_model "llama_epl" "True" "2e-5" "aug-wo-pc" "None" "v1"
+train_model "epl_apa_mtp_w3e-111111" "True" "2e-5" "aug-wo-pc-apa-mtp" "configs/epl_apa_mtp.json" "apa_mtp"
 if [ $? -ne 0 ]; then
-    echo "❌ llama_epl训练失败，退出"
+    echo "❌ epl_apa_mtp_w3e-1训练失败，退出"
     exit 1
 fi
+inference_and_evaluate "epl_apa_mtp_w3e-1" "anchor-thought" "inference" "./configs/LightThinker/llama/apa_mtp.json"
+
+
+# train_model "llama_epl" "True" "2e-5" "aug-wo-pc" "None" "v1"
+# if [ $? -ne 0 ]; then
+#     echo "❌ llama_epl训练失败，退出"
+#     exit 1
+# fi
 
 
 echo ""
