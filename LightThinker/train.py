@@ -2,13 +2,15 @@ import os
 import json
 os.environ["TOKENIZERS_PARALLELISM"] = "false" 
 import argparse
+import random
+import numpy as np
 import torch
 from typing import *
 from tqdm import tqdm
 from copy import deepcopy
 from model_qwen import Qwen2ForCausalLM
 from model_llama import LlamaForCausalLM
-from transformers import Trainer, TrainingArguments
+from transformers import Trainer, TrainingArguments, set_seed as hf_set_seed
 import torch.distributed as dist
 from transformers import TrainerCallback
 from transformers.integrations import TensorBoardCallback
@@ -153,6 +155,18 @@ class MTPLossCallback(TrainerCallback):
             # 重置计数器
             self.local_stats = {"lm_sum": 0.0, "mtp_sum": 0.0, "micro_count": 0}
 
+def set_global_seed(seed: int) -> None:
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+    hf_set_seed(seed)
+    # 尽量保证可复现（某些算子在特定硬件/后端下仍可能存在微小差异）
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    torch.use_deterministic_algorithms(True, warn_only=True)
+
 def get_parser():
     parser = argparse.ArgumentParser()
     parser.add_argument('--local_rank', type=int, help="just used for deepspeed.")
@@ -187,6 +201,7 @@ def get_parser():
     parser.add_argument('--warmup_ratio', type=float, default=0.)
     parser.add_argument('--warmup_steps', type=int, default=0)
     parser.add_argument('--lr_scheduler_type', type=str, default='linear')
+    parser.add_argument('--seed', type=int, default=42)
 
     parser.add_argument('--use_EPL', type=str2bool, default=False)
     args = parser.parse_args()
@@ -317,6 +332,7 @@ def get_dataset_and_data_collator(
 
 def main():
     args = get_parser()
+    set_global_seed(args.seed)
     if args.output_compress_instruction == "None":
         args.output_compress_instruction = ""
     print(args)
@@ -384,6 +400,7 @@ def main():
         gradient_accumulation_steps=args.gradient_accumulation_steps,
         warmup_steps=args.warmup_steps,
         warmup_ratio=args.warmup_ratio,
+        seed=args.seed,
     )
     
     trainer = Trainer(

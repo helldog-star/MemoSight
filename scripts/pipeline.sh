@@ -96,6 +96,7 @@ print_help() {
   --warmup_steps             默认 0
   --lr_scheduler_type        默认 cosine
   --deepspeed_config         默认 configs/ds_z3_offload_config.json
+  --seed                     随机种子（默认 42）
 
 推理相关:
   --ckpt                     checkpoint 编号；不传自动取最新
@@ -166,6 +167,7 @@ save_param_snapshot() {
         echo "target_gpus=${TARGET_GPUS}"
         echo "process_per_gpu=${PROCESS_PER_GPU}"
         echo "max_new_tokens=${MAX_NEW_TOKENS}"
+        echo "seed=${SEED}"
     } > "${snapshot}"
     link_latest "${snapshot}" "run_latest.txt"
 }
@@ -223,7 +225,8 @@ run_train() {
         --hybrid "${HYBRID}" \
         --prefill_compress "${PREFILL_COMPRESS}" \
         --lr_scheduler_type "${LR_SCHEDULER_TYPE}" \
-        --use_EPL "${USE_EPL}" 2>&1 | tee "${log_file}"
+        --use_EPL "${USE_EPL}" \
+        --seed "${SEED}" 2>&1 | tee "${log_file}"
     local exit_code=${PIPESTATUS[0]}
     link_latest "${log_file}" "train_latest.log"
     [[ "${exit_code}" -eq 0 ]] || die "训练失败，日志: ${log_file}"
@@ -386,6 +389,7 @@ WARMUP_RATIO=0.05
 WARMUP_STEPS=0
 LR_SCHEDULER_TYPE="cosine"
 DEEPSPEED_CONFIG="configs/ds_z3_offload_config.json"
+SEED=42
 SEE_CURRENT="false"
 BI_DIRECTIONAL="false"
 DIAGONAL="false"
@@ -443,6 +447,7 @@ while [[ $# -gt 0 ]]; do
         --warmup_steps) WARMUP_STEPS="${2:-}"; shift 2 ;;
         --lr_scheduler_type) LR_SCHEDULER_TYPE="${2:-}"; shift 2 ;;
         --deepspeed_config) DEEPSPEED_CONFIG="${2:-}"; shift 2 ;;
+        --seed) SEED="${2:-}"; shift 2 ;;
         --see_current) SEE_CURRENT="${2:-}"; shift 2 ;;
         --bi_directional) BI_DIRECTIONAL="${2:-}"; shift 2 ;;
         --diagonal) DIAGONAL="${2:-}"; shift 2 ;;
