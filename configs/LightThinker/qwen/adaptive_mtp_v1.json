@@ -1,10 +1,10 @@
 {
     "template": {
-        "model": "llama",
-        "prefix": "<|start_header_id|>system<|end_header_id|>\n",
-        "middle": "<|eot_id|><|start_header_id|>user<|end_header_id|>\n",
-        "suffix": "<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n",
-        "complete": "<|start_header_id|>system<|end_header_id|>\n{system}<|eot_id|><|start_header_id|>user<|end_header_id|>\n{question}<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n"
+        "model": "qwen",
+        "prefix": "system\n",
+        "middle": "<|im_end|>\n<|im_start|>user\n",
+        "suffix": "<|im_end|>\n<|im_start|>assistant\n",
+        "complete": "system\n{system}<|im_end|>\n<|im_start|>user\n{question}<|im_end|>\n<|im_start|>assistant\n"
     },
     "prompt": {
         "save_template": true,
@@ -24,5 +24,10 @@
         "compression_ratio": 5,
         "forzen_model_train_mtp": false,
         "share_compression_token": false
+    },
+    "mtp": {
+        "mtp_loss_weight": 0.3,
+        "lm_loss_weight": 1.0,
+        "max_offset": 3
     }
 }

@@ -319,9 +319,6 @@ class Qwen2Attention(nn.Module):
         value_states = self.v_proj(hidden_states)
         
         #apa_mtp不用这里
-        #这里是做了压缩???用新的压缩投影层替代原有的，看了下
-        #看完datacollator回来，的确是，这些index代表了压缩的位置，貌似是直接进行替换
-        #但是self.new_q、k、v都是false啊？而且本身attention mask不已经做到这点了吗？
         if self.new_q:
             query_states[row_comp_index, column_comp_index] = self._q_proj(hidden_states[row_comp_index, column_comp_index])
         if self.new_k:

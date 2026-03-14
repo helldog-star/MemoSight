@@ -9,9 +9,7 @@ from copy import deepcopy
 from model_qwen import Qwen2ForCausalLM
 from model_llama import LlamaForCausalLM
 from transformers import Trainer, TrainingArguments
-import deepspeed
 import torch.distributed as dist
-from datetime import timedelta  # 引入时间库
 from transformers import TrainerCallback
 from transformers.integrations import TensorBoardCallback
 
@@ -26,20 +24,10 @@ else:
     print("Running in single-GPU mode")
 # =========================================
 
-
-
-if not torch.distributed.is_initialized():
-    deepspeed.init_distributed(
-        dist_backend="nccl",
-        timeout=timedelta(minutes=120)
-    )
-
 from config import Config
 from LightThinker.utils import _print, IGNORE_LABEL_ID, str2bool
 from tokenizer import Tokenizer
 from dataset import MyDataset, MyDataCollator
-
-from transformers import TrainerCallback
 
 class SaveTokenizerCallback(TrainerCallback):
     """保存checkpoint同时保存tokenizer"""
@@ -165,55 +153,6 @@ class MTPLossCallback(TrainerCallback):
             # 重置计数器
             self.local_stats = {"lm_sum": 0.0, "mtp_sum": 0.0, "micro_count": 0}
 
-
-def init_mtp_from_last_layer(model) -> None:
-    if not hasattr(model, "mtp_modules") or getattr(model, "mtp_depth", 0) <= 0:
-        return
-    if not hasattr(model, "model") or not hasattr(model.model, "layers"):
-        return
-
-    last_layer = model.model.layers[-1]
-    with torch.no_grad():
-        def _format_key_list(keys, max_items: int = 5) -> str:
-            if not keys:
-                return "[]"
-            shown = keys[:max_items]
-            suffix = "" if len(keys) <= max_items else f"...(+{len(keys) - max_items})"
-            return f"{shown}{suffix}"
-
-        def _log_load(idx: int, name: str, result) -> None:
-            missing = list(result.missing_keys)
-            unexpected = list(result.unexpected_keys)
-            _print(
-                f"init mtp[{idx}] {name}: "
-                f"missing={len(missing)} { _format_key_list(missing) } "
-                f"unexpected={len(unexpected)} { _format_key_list(unexpected) }"
-            )
-
-        for idx, mtp_module in enumerate(model.mtp_modules):
-            res = mtp_module.self_attn.load_state_dict(last_layer.self_attn.state_dict(), strict=False)
-            _log_load(idx, "self_attn", res)
-            res = mtp_module.cross_attn.load_state_dict(last_layer.self_attn.state_dict(), strict=False)
-            _log_load(idx, "cross_attn(from self_attn)", res)
-            res = mtp_module.mlp.load_state_dict(last_layer.mlp.state_dict(), strict=False)
-            _log_load(idx, "mlp", res)
-
-
-def freeze_except_mtp(model):
-    for name, param in model.named_parameters():
-        param.requires_grad = False
-
-    for name, param in model.named_parameters():
-        if "mtp" in name:
-            param.requires_grad = True
-
-    # sanity check
-    print("Trainable parameters:")
-    for n, p in model.named_parameters():
-        if p.requires_grad:
-            print(n)
-
-
 def get_parser():
     parser = argparse.ArgumentParser()
     parser.add_argument('--local_rank', type=int, help="just used for deepspeed.")
@@ -250,7 +189,6 @@ def get_parser():
     parser.add_argument('--lr_scheduler_type', type=str, default='linear')
 
     parser.add_argument('--use_EPL', type=str2bool, default=False)
-    parser.add_argument('--aux_config', type=str, default=None)
     args = parser.parse_args()
     return args
 
@@ -284,28 +222,17 @@ def get_model_and_tokenizer(
     else:
         assert False, "We only support llama and qwen model."
 
-    if args.aux_config is not None and args.aux_config != "None":
+    if comp_config.mtp_cfg:
         _print(f"use ce + mtp loss...")
-        assert os.path.exists(args.aux_config)
         from transformers import AutoConfig
         model_config = AutoConfig.from_pretrained(args.model_path, trust_remote_code=True)
-        with open(args.aux_config, "r", encoding='utf-8') as f:
-            mtp_params = json.load(f)
-        _print(f"auxiliary mtp config={mtp_params}")
-
-        if comp_config.forzen_model_train_mtp:
-            mtp_params["forzen_model_train_mtp"] = True
+        mtp_params = comp_config.mtp_cfg
+        _print(f"mtp config={mtp_params}")
 
         model_config.update(mtp_params)
         model = model_class.from_pretrained(
             args.model_path, config=model_config, torch_dtype=torch.bfloat16, trust_remote_code=True
         )
-        if getattr(model_config, "init", False):
-            _print(f"initialize mtp from last layer...")
-            init_mtp_from_last_layer(model)
-        if comp_config.forzen_model_train_mtp:
-            freeze_except_mtp(model)
-    
     else:
         _print(f"use ce loss...")
         model = model_class.from_pretrained(
@@ -356,7 +283,7 @@ def get_model_and_tokenizer(
     for param_name in trainable_params:
         print(param_name)
 
-    return model, tokenizer,hook_handle
+    return model, tokenizer, hook_handle
 
 def get_dataset_and_data_collator(
     args,
@@ -366,12 +293,7 @@ def get_dataset_and_data_collator(
     attention_config:Dict,
     sample_config:Dict,
 ) -> Tuple[MyDataset, MyDataCollator]:
-    
-    cache_dir=os.path.join(os.path.dirname(args.train_path),"dataset_cache")
-    tokenizer_name = os.path.basename(os.path.normpath(args.tokenizer_path))
-    dataset_name = os.path.splitext(os.path.basename(args.train_path))[0]
-    cache_filename=f"cache_{tokenizer_name}_{dataset_name}.pt"
-    
+
     dataset = MyDataset(
         file_path=args.train_path,
         config=comp_config,
@@ -380,11 +302,6 @@ def get_dataset_and_data_collator(
         train_on_input=args.train_on_input,
         change_rope=False,
         output_compress_instruction=args.output_compress_instruction,
-        # cache_dir=cache_dir,
-        cache_dir=None,
-        cache_filename=cache_filename,
-        force_preprocess=True,
-        local_rank=local_rank,
         use_EPL=args.use_EPL,
     )
 
@@ -484,15 +401,16 @@ def main():
     if tb_callback is not None:
         trainer.add_callback(tb_callback)
 
-    # 在加载检查点时使用上下文管理器
-    if resume_from_checkpoint and not comp_config.forzen_model_train_mtp:
-        trainer.train(resume_from_checkpoint=resume_from_checkpoint)
-    else:
-        trainer.train()
-
-    # 训练完成，显式移除钩子
-    hook_handle.remove()
-    print("Hook removed successfully.")
+    try:
+        # 在加载检查点时使用上下文管理器
+        if resume_from_checkpoint:
+            trainer.train(resume_from_checkpoint=resume_from_checkpoint)
+        else:
+            trainer.train()
+    finally:
+        # 无论训练正常结束还是异常退出，都清理 hook
+        hook_handle.remove()
+        print("Hook removed successfully.")
     
 
 

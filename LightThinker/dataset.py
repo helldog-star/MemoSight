@@ -1,10 +1,8 @@
 
 import torch
-import torch.distributed as dist 
 from typing import List, Dict, Tuple, Union, Optional
 from tqdm import tqdm
 from copy import deepcopy
-import os
 import time
 
 from config import Config
@@ -24,10 +22,6 @@ class MyDataset(torch.utils.data.Dataset):
         train_on_input:bool,
         change_rope: bool=False,
         output_compress_instruction:str=None,
-        cache_dir: str = None,  # 启用缓存
-        cache_filename: str=None, #存储文件
-        force_preprocess: bool = False,  # 设置为True可强制重新预处理
-        local_rank: int = 0,
         use_EPL=False,
     ):
         self.check_consistency = False
@@ -52,115 +46,9 @@ class MyDataset(torch.utils.data.Dataset):
 
         self.use_EPL = use_EPL
         
-        # 1. 获取当前进程的 Rank (如果是单卡运行，默认 Rank 为 0)
-        self.local_rank = local_rank
-
-        # 2. 确定缓存路径
-        if cache_dir and cache_filename:
-            if not os.path.exists(cache_dir):
-                # 只有主进程创建目录，防止冲突
-                if self.local_rank == 0:
-                    os.makedirs(cache_dir, exist_ok=True)
-            
-            self.cache_path = os.path.join(cache_dir, cache_filename)
-
-            if use_EPL:
-                self.cache_path = self.cache_path.replace(".pt", "_EPL.pt")
-            else:
-                self.cache_path = self.cache_path
-        else:
-            self.cache_path = None
-
-        # 标记是否已经在这个进程的内存中生成了数据
-        data_in_memory = False
-
-
-        # 3. Rank 0 负责核心判断和处理
-        if self.cache_path:
-            # 只有 Rank 0 才有资格决定是否需要“重新处理并写入”
-            if self.local_rank == 0:
-                should_process = not os.path.exists(self.cache_path) or force_preprocess
-                 
-                if should_process:
-                    print(f"[Rank {self.local_rank}] Cache not found or forced. Processing data...")
-                    try:
-                        self.init()
-                        self.init_for_aug_data_wo_pc()
-                        
-                        print(f"[Rank {self.local_rank}] Saving cache to {self.cache_path}...")
-                        # 保存数据到临时文件，然后原子性重命名
-                        cache_data = {
-                            'normal': self.normal_data,
-                            'aug': self.aug_data,
-                            'recover': self.recover_data,
-                            'recover_prompt': self.recover_prompt_data,
-                            'aug_wo_pc': self.aug_data_wo_prompt_comp,
-                            'aug_register_mtp': self.aug_data_wo_prompt_comp_apa_mtp
-                        }
-                        
-                        # 使用临时文件 + 重命名，避免其他进程读到不完整的文件
-                        temp_cache_path = self.cache_path + '.tmp'
-                        # torch.save(cache_data, temp_cache_path)
-                        # os.rename(temp_cache_path, self.cache_path)
-                        
-                        print(f"[Rank {self.local_rank}] Cache saved!")
-                        data_in_memory = True
-                    except Exception as e:
-                        print(f"[Rank {self.local_rank}] ERROR during processing: {e}")
-                        raise
-                else:
-                    print(f"[Rank {self.local_rank}] Cache found at {self.cache_path}.")
-            
-            # 4. 关键：同步屏障 (Barrier)
-            # 所有的进程（Rank 0, 1, 2...）都会运行到这里。
-            # 如果 Rank 0 还在上面处理数据，其他进程会在这里死等，直到 Rank 0 跑完并执行到这里。
-            # if dist.is_initialized():
-            #     dist.barrier()
-
-            print(f"[Rank {self.local_rank}] Waiting at barrier...")
-            if dist.is_initialized():
-                dist.barrier()
-                print(f"[Rank {self.local_rank}] Passed barrier!")
-            else:
-                print(f"[Rank {self.local_rank}] WARNING: dist not initialized!")
-                    
-            # 5. 加载数据
-            # 如果我是 Rank 0 且刚才已经处理过(data_in_memory=True)，就不用读了，省一次 IO。
-            # 否则（我是 Rank > 0，或者我是 Rank 0 但发现文件早就存在没经过处理），都需要读取文件。
-            if not data_in_memory:
-                print(f"[Rank {self.local_rank}] Loading cached data from {self.cache_path}...")
-                # map_location='cpu' 很重要，防止多进程同时加载导致 GPU 显存瞬间爆炸
-                # cached_data = torch.load(self.cache_path, map_location='cpu', weights_only=False) # 如果你还没降级torch，记得 weights_only
-
-                # 验证文件是否存在
-                if not os.path.exists(self.cache_path):
-                    raise FileNotFoundError(
-                        f"[Rank {self.local_rank}] Cache file not found: {self.cache_path}\n"
-                        f"This usually means Rank 0 failed to save the cache."
-                    )
-                
-                try:
-                    cached_data = torch.load(
-                        self.cache_path, 
-                        map_location='cpu', 
-                        weights_only=False
-                    )
-                    
-                    self.normal_data = cached_data['normal']
-                    self.aug_data = cached_data['aug']
-                    self.recover_data = cached_data['recover']
-                    self.recover_prompt_data = cached_data['recover_prompt']
-                    self.aug_data_wo_prompt_comp = cached_data['aug_wo_pc']
-                    self.aug_data_wo_prompt_comp_apa_mtp = cached_data['aug_register_mtp']
-                    print(f"[Rank {self.local_rank}] Loaded successfully.")
-                except Exception as e:
-                    print(f"[Rank {self.local_rank}] ERROR loading cache: {e}")
-                    raise
-        
-        else:
-            # 如果没配置缓存路径，就像以前一样各自跑（不推荐）
-            self.init()
-            self.init_for_aug_data_wo_pc()
+        # 预处理
+        self.init()
+        self.init_for_aug_data_wo_pc()
     
     #token level，感觉没用到
     def insert_comp_for_output(self, output:str) -> Tuple[List[str], List[List[int]]]:
@@ -573,22 +461,28 @@ class MyDataset(torch.utils.data.Dataset):
                 )
             )
 
-            recover_item, aug_item_register_mtp = self.tokenizer.aug_data_tokenize_apa_mtp(
-                structured_input=structured_input,
-                structured_input_indicator=structured_input_indicator,
-                n_comp_for_prompt=self.config.prompt_comp_n_token,  
-                n_continue_for_prompt=0,
-                n_comp_for_output=self.config.output_comp_n_token,
-                n_continue_for_output=1,
-                mask_label_map=mask_label_map,
-                max_length=self.padding_config['max_length'],
-                train_on_input=self.train_on_input,
-                check_consistency=False,
-                recover_mode=False,
-                use_EPL=self.use_EPL,
-                regitser_token=self.config.register_token,
-                output_comp_adaptive_num_token=output_comp_adaptive_num_token
-            )
+            # 如果没有mtp配置就不处理mtp数据
+            if self.config.mtp_cfg:
+                recover_item, aug_item_register_mtp = self.tokenizer.aug_data_tokenize_apa_mtp(
+                    structured_input=structured_input,
+                    structured_input_indicator=structured_input_indicator,
+                    n_comp_for_prompt=self.config.prompt_comp_n_token,  
+                    n_continue_for_prompt=0,
+                    n_comp_for_output=self.config.output_comp_n_token,
+                    n_continue_for_output=1,
+                    mask_label_map=mask_label_map,
+                    max_length=self.padding_config['max_length'],
+                    train_on_input=self.train_on_input,
+                    check_consistency=self.check_consistency,
+                    recover_mode=False,
+                    use_EPL=self.use_EPL,
+                    regitser_token=self.config.register_token,
+                    output_comp_adaptive_num_token=output_comp_adaptive_num_token,
+                    mtp_cfg=self.config.mtp_cfg
+                )
+            else:
+                aug_item_register_mtp=None
+            
             self.aug_data_wo_prompt_comp_apa_mtp.append(
                 dict(
                     meta_info=item,
@@ -609,10 +503,6 @@ class MyDataset(torch.utils.data.Dataset):
     
     def __len__(self) -> int:
         return len(self.normal_data)
-    
-    def clean_cache(self):
-        if self.cache_file and os.path.exists(self.cache_file):
-            os.remove(self.cache_file)
     
 class MyDataCollator:
 
@@ -1017,6 +907,9 @@ class MyDataCollator:
             system_prompt_length=list(),
             register_token_index=list(),
         )
+        # 动态按当前 batch 的真实物理长度对齐（register 插入后长度会变化）
+        batch_max_length = max(len(instance[5]['tokenized']['input_ids']) for instance in instances)
+
         for bsz_id, instance in enumerate(instances):
             _, _, _, _, _, aug_data = instance
 
@@ -1025,7 +918,7 @@ class MyDataCollator:
                     locate_index_list=aug_data['tokenized']['locate_index'],
                     locate_indicator_list=aug_data['tokenized']['locate_indicator'],
                     exclude_continue=self.exclude_continue,
-                    max_length=self.dataset.padding_config['max_length'],
+                    max_length=batch_max_length,
                     prefill_compress=False
                 )
             final['attention_mask'].append(attention_mask)
@@ -1035,7 +928,7 @@ class MyDataCollator:
                 padding_side=self.dataset.padding_config['padding_side'],
                 label_padding_id=self.dataset.padding_config['label_padding_id'], 
                 input_padding_id=self.dataset.padding_config['input_padding_id'], 
-                max_length=self.dataset.padding_config['max_length'], 
+                max_length=batch_max_length, 
                 position_ids_padding_id=self.dataset.padding_config['position_ids_padding_id']
             )
             final['input_ids'].append(new_item['input_ids'])
@@ -1175,9 +1068,6 @@ if __name__ == '__main__':
         train_on_input=train_on_input,
         change_rope=False,
         output_compress_instruction="",
-        cache_dir="",  # 启用缓存
-        cache_filename=None,
-        force_preprocess=False,  # 设置为True可强制重新预处理
         use_EPL=True
     )
 

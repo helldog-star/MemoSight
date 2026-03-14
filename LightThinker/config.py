@@ -17,12 +17,14 @@ class Config:
         template:Dict,
         prompt:Dict,
         output:Dict,
+        mtp:Dict=None,
         share:bool=True,
     ): 
         self.share:bool = share
         self.template_cfg:Dict = template
         self.prompt_cfg:Dict = prompt
         self.output_cfg:Dict = output
+        self.mtp_cfg:Dict = mtp
 
         if 'model' not in self.template_cfg:
             self.template_cfg['model'] = 'qwen'

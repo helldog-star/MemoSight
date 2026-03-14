@@ -355,6 +355,7 @@ class Tokenizer:
         use_EPL:bool=False,
         regitser_token:str = None,
         output_comp_adaptive_num_token:List[int]=[],
+        mtp_cfg:Dict=None,
     ) -> Tuple[List[Dict], Dict]:
 
         # 1. tokenize
@@ -365,26 +366,12 @@ class Tokenizer:
         # register token id
         regitser_token_id = self.tokenizer.convert_tokens_to_ids(regitser_token)
         # mtp register offset
-        register_mtp_offset = random.randint(1, 4) 
+        register_mtp_offset = random.randint(0, mtp_cfg['max_offset']) 
         
         for i, segement_list in enumerate(structured_input):
             tokenized_input_id_list.append(list())
             for j, segement in enumerate(segement_list):
-
-                # if not isinstance(segement, str):
-                #     assert isinstance(segement, list)
-                #     tokenized_input_id_list[-1].append(segement)
-                #     whole_input += self.tokenizer.decode(segement)
-                #     tokenized_whole_input_from_segement.extend(segement)
-                # else:
-                #     tokenized_input_id_list[-1].append(
-                #         self.tokenizer(segement, return_tensors=None)['input_ids']
-                #     )
-                #     tokenized_whole_input_from_segement.extend(
-                #         tokenized_input_id_list[-1][-1]
-                #     )
-                #     whole_input += segement
-
+                # 针对reasoning step插入register tokens
                 if structured_input_indicator[i][j] == 'abandoned':
                     tokenized_input_id = self.tokenizer(segement, return_tensors=None, add_special_tokens=False)['input_ids']
                     # 插入register tokens
@@ -403,13 +390,38 @@ class Tokenizer:
                     )
                     whole_input += segement
         
-        # we do not check consistency for register token    
-        # if check_consistency:
-        #     tokenized_whole_input = self.tokenizer(
-        #         whole_input, return_tensors=None
-        #     )['input_ids']
-        #     assert tokenized_whole_input_from_segement == tokenized_whole_input, \
-        #         f"consistency check failed.\n{tokenized_whole_input_from_segement}\n{tokenized_whole_input}\n{whole_input}\n{structured_input}\n\n\n\n`{self.tokenizer.decode(tokenized_whole_input_from_segement)}`\n`{self.tokenizer.decode(tokenized_whole_input)}`"
+        if check_consistency:
+            # 1) 结构一致性：二维分段展开后应与累计拼接序列完全一致
+            flattened_from_segments = [
+                token_id
+                for role_segments in tokenized_input_id_list
+                for seg_ids in role_segments
+                for token_id in seg_ids
+            ]
+            assert flattened_from_segments == tokenized_whole_input_from_segement, (
+                "consistency check failed (flatten mismatch).\n"
+                f"flattened={flattened_from_segments}\n"
+                f"accumulated={tokenized_whole_input_from_segement}\n"
+                f"structured_input={structured_input}"
+            )
+
+            # 2) 语义一致性：去掉 register token 后，应与对 whole_input 的直接 tokenization 一致
+            tokenized_whole_input = self.tokenizer(
+                whole_input, return_tensors=None, add_special_tokens=False
+            )['input_ids']
+            without_register = [
+                token_id for token_id in tokenized_whole_input_from_segement
+                if token_id != regitser_token_id
+            ]
+            assert without_register == tokenized_whole_input, (
+                "consistency check failed (remove register mismatch).\n"
+                f"without_register={without_register}\n"
+                f"tokenized_whole_input={tokenized_whole_input}\n"
+                f"whole_input={whole_input}\n"
+                f"structured_input={structured_input}\n"
+                f"decoded_without_register=`{self.tokenizer.decode(without_register)}`\n"
+                f"decoded_whole=`{self.tokenizer.decode(tokenized_whole_input)}`"
+            )
 
         # 2. create label
         tokenized_label_list = deepcopy(tokenized_input_id_list)
@@ -453,20 +465,26 @@ class Tokenizer:
         compression_count = 0
         register_count = 0
         adaptive_index = 0
+        # 语义长度（不含 register token），用于与不加 register 的样本严格对齐
+        semantic_length = 0
+        pending_comp_meta = None
 
         for i in range(len(tokenized_label_list)):
-            # 加入register token后，input_ids长度约为原来的2倍，将max_length设置为baseline的2倍
-            if len(final_item['input_ids']) >= max_length:
+            # 按语义长度截断：只统计非 register token
+            if semantic_length >= max_length:
                 break
             if i == 0:
                 final_item["system_prompt_length"].append(len(tokenized_input_id_list[0][0]))
             for j in range(len(tokenized_label_list[i])):
-                if len(final_item['input_ids']) >= max_length:
+                if semantic_length >= max_length:
                     break
                 assert structured_input_indicator[i][j] in [
                     'save', 'abandoned', 'compressed-prompt', 'compressed-output'
                 ]
                 if structured_input_indicator[i][j] == 'abandoned':
+                    segment_input_ids = tokenized_input_id_list[i][j]
+                    # abandoned 段为 [R,C,R,C,...]，语义长度等于非 register token 数
+                    segment_sem_len = sum(1 for x in segment_input_ids if x != regitser_token_id)
                     # print(structured_input_indicator[i][j+1])
                     if j+1 < len(structured_input_indicator[i]):
 
@@ -477,6 +495,11 @@ class Tokenizer:
                             n_comp = output_comp_adaptive_num_token[adaptive_index]
                             adaptive_index += 1
                         assert len(tokenized_input_id_list[i][j+1]) - n_comp - n_continue == 0
+                        pending_comp_meta = dict(
+                            n_comp=n_comp,
+                            n_continue=n_continue,
+                            next_indicator=structured_input_indicator[i][j+1],
+                        )
                         # apa_mtp just support compressed-output, so we do not mask for instruction
                         # # mask for instruction
                         # if len(tokenized_input_id_list[i][j+1]) - n_comp - n_continue > 0:
@@ -488,77 +511,102 @@ class Tokenizer:
                         final_item['locate_index'].append(
                             [
                                 len(final_item['input_ids']), 
-                                len(final_item['input_ids']) + len(tokenized_input_id_list[i][j]),
+                                len(final_item['input_ids']) + len(segment_input_ids),
                                 len(tokenized_input_id_list[i][j+1]) - n_comp - n_continue,
                                 n_comp,
                                 n_continue
                             ]
                         )
 
-                        # 如果是 compressed-output, 生成均匀分布 position_ids，compressed-output部分只包含compressed-token和continue-token
+                        # 如果是 EPL compressed-output, 生成均匀分布 position_ids，compressed-output部分只包含compressed-token和continue-token
                         if use_EPL and structured_input_indicator[i][j+1] == 'compressed-output':
                             # 因为加入了register token，所以需要//2
-                            n_abandoned = len(tokenized_input_id_list[i][j]) // 2
+                            n_abandoned = segment_sem_len
                             n_compressed = n_comp
                             
                             # 真实的位置编码是相对于register token的，所以需要-register_count
                             base_pos = len(final_item['input_ids']) - compression_count - register_count
                             end_pos = len(final_item['input_ids']) + n_abandoned - compression_count - register_count
                             compressed_positions = []
-                            step = n_abandoned / n_compressed
-                            for k in range(n_compressed):
-                                # k * step: 当前分段的起始
-                                # step / 2: 当前分段的中心偏移量
-                                # base_pos: 全局起始偏移
-                                # int(...): 向下取整得到整数索引
-                                center_offset = int(k * step + step / 2)
-                                
-                                # 计算最终位置
-                                pos = base_pos + center_offset
-                                compressed_positions.append(pos)
+                            if n_compressed > 0:
+                                step = n_abandoned / n_compressed
+                                for k in range(n_compressed):
+                                    # k * step: 当前分段的起始
+                                    # step / 2: 当前分段的中心偏移量
+                                    # base_pos: 全局起始偏移
+                                    # int(...): 向下取整得到整数索引
+                                    center_offset = int(k * step + step / 2)
+                                    
+                                    # 计算最终位置
+                                    pos = base_pos + center_offset
+                                    compressed_positions.append(pos)
+                            pending_comp_meta["n_compressed"] = n_compressed
+                            pending_comp_meta["compressed_positions"] = compressed_positions
+                            pending_comp_meta["end_pos"] = end_pos
                         else:
-                            compressed_positions = None
+                            if pending_comp_meta is not None:
+                                pending_comp_meta["n_compressed"] = n_comp
+                                pending_comp_meta["compressed_positions"] = None
+                                pending_comp_meta["end_pos"] = None
                 
                 if use_EPL and structured_input_indicator[i][j] == 'compressed-output':
+                    assert pending_comp_meta is not None, \
+                        "compressed-output appears without paired abandoned metadata."
+                    n_compressed = pending_comp_meta["n_compressed"]
+                    compressed_positions = pending_comp_meta["compressed_positions"]
+                    end_pos = pending_comp_meta["end_pos"]
                     compression_count += n_compressed
                     for k in range(len(tokenized_label_list[i][j])):
-                        if len(final_item['input_ids']) >= max_length:
+                        if semantic_length >= max_length:
                             break
+                        cur_token_id = tokenized_input_id_list[i][j][k]
                         # position_id 逻辑
-                        if structured_input_indicator[i][j] == 'compressed-output' and compressed_positions is not None and n_compressed != 0:
-                            # 为了处理continue token
-                            n_compressed = n_compressed - 1
+                        if compressed_positions is not None and k < len(compressed_positions):
                             final_item['position_ids'].append(compressed_positions[k])
                         else:
                             final_item['position_ids'].append(end_pos)
                         
-                        final_item['input_ids'].append(tokenized_input_id_list[i][j][k])
+                        final_item['input_ids'].append(cur_token_id)
                         final_item['labels'].append(tokenized_label_list[i][j][k])
+                        if cur_token_id != regitser_token_id:
+                            semantic_length += 1
+                    pending_comp_meta = None
                 else:
                     # 在这里处理加入register token后abandoned的情况
                     if structured_input_indicator[i][j] == 'abandoned':
-                        segment_input_ids = tokenized_input_id_list[i][j]
                         base_pos = len(final_item['input_ids']) - compression_count - register_count
                         position_ids_with_register = self._calculate_position_ids_with_register(
                             segment_input_ids, regitser_token_id, register_mtp_offset, base_pos
                         )
+                        added_register_count = 0
                         for k in range(len(tokenized_label_list[i][j])):
-                            if len(final_item['input_ids']) >= max_length:
+                            if semantic_length >= max_length:
                                 break
+                            cur_token_id = segment_input_ids[k]
 
-                            final_item['input_ids'].append(segment_input_ids[k])
+                            final_item['input_ids'].append(cur_token_id)
                             final_item['labels'].append(tokenized_label_list[i][j][k])
                             final_item['position_ids'].append(position_ids_with_register[k])
-                        register_count += n_abandoned
+                            if cur_token_id != regitser_token_id:
+                                semantic_length += 1
+                            else:
+                                added_register_count += 1
+                        # abandoned 段为 [R,C,R,C,...]，R 的数量等于 C 的数量
+                        register_count += added_register_count
                     # 处理save和非EPL情况下的compressed-output
                     else:
                         for k in range(len(tokenized_label_list[i][j])):
-                            if len(final_item['input_ids']) >= max_length:
+                            if semantic_length >= max_length:
                                 break
+                            cur_token_id = tokenized_input_id_list[i][j][k]
                             final_item['position_ids'].append(len(final_item['input_ids']) - compression_count - register_count)
                             
-                            final_item['input_ids'].append(tokenized_input_id_list[i][j][k])
+                            final_item['input_ids'].append(cur_token_id)
                             final_item['labels'].append(tokenized_label_list[i][j][k])
+                            if cur_token_id != regitser_token_id:
+                                semantic_length += 1
+                        if structured_input_indicator[i][j] == 'compressed-output':
+                            pending_comp_meta = None
 
         # 4. recover
         # we do not use revover mode
