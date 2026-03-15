@@ -53,6 +53,7 @@ from torch.nn import BCEWithLogitsLoss, CrossEntropyLoss, MSELoss
 from transformers.activations import ACT2FN
 from transformers.cache_utils import Cache, DynamicCache, StaticCache
 from transformers.generation import GenerationMixin
+from transformers.loss.loss_utils import fixed_cross_entropy
 from transformers.modeling_attn_mask_utils import AttentionMaskConverter
 from transformers.modeling_flash_attention_utils import _flash_attention_forward
 from transformers.modeling_outputs import (
@@ -1340,6 +1341,7 @@ class LlamaForCausalLM(LlamaPreTrainedModel, GenerationMixin):
 
                 shift_lm_logits = filtered_lm_logits[:-1].contiguous()
                 shift_lm_labels = filtered_lm_labels[1:].contiguous()
+                
                 # 利用每个 batch 的非 register token 数量构造边界，避免创建 [B, T] 的 batch_idx 大张量
                 non_register_counts = non_register_mask.sum(dim=1)
                 if shift_lm_labels.numel() > 0:
@@ -1354,14 +1356,27 @@ class LlamaForCausalLM(LlamaPreTrainedModel, GenerationMixin):
                 safe_lm_labels = shift_lm_labels[valid_shift_mask]
 
                 zero_loss = logits.sum() * 0.0
-                ce_loss = CrossEntropyLoss(ignore_index=-100)
+                num_items_in_batch = loss_kwargs.get("num_items_in_batch", None)
+                if isinstance(num_items_in_batch, torch.Tensor):
+                    num_items_in_batch = num_items_in_batch.item()
+
                 mtp_loss = (
-                    ce_loss(mtp_logits.float(), mtp_labels.to(mtp_logits.device))
+                    fixed_cross_entropy(
+                        mtp_logits.float(),
+                        mtp_labels.to(mtp_logits.device),
+                        num_items_in_batch=num_items_in_batch,
+                        ignore_index=-100,
+                    )
                     if mtp_labels.numel() > 0
                     else zero_loss
                 )
                 lm_loss = (
-                    ce_loss(safe_lm_logits.float(), safe_lm_labels.to(safe_lm_logits.device))
+                    fixed_cross_entropy(
+                        safe_lm_logits.float(),
+                        safe_lm_labels.to(safe_lm_logits.device),
+                        num_items_in_batch=num_items_in_batch,
+                        ignore_index=-100,
+                    )
                     if safe_lm_labels.numel() > 0
                     else zero_loss
                 )
@@ -1369,7 +1384,7 @@ class LlamaForCausalLM(LlamaPreTrainedModel, GenerationMixin):
                 self._last_mtp_loss = mtp_loss.detach().item()
                 self._last_lm_loss = lm_loss.detach().item()
 
-                loss = lm_loss + self.mtp_lambda * mtp_loss
+                loss = self.lm_loss_weight * lm_loss + self.mtp_loss_weight * mtp_loss
             
             else:
                 loss = self.loss_function(logits, labels, self.vocab_size, **loss_kwargs)

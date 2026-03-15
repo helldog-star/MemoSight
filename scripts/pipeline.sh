@@ -4,6 +4,8 @@ set -euo pipefail
 
 export NCCL_P2P_DISABLE="1"
 export NCCL_IB_DISABLE="1"
+# 为 CUDA >= 10.2 的 cuBLAS 提供确定性工作区配置，减少 PyTorch deterministic 警告。
+export CUBLAS_WORKSPACE_CONFIG="${CUBLAS_WORKSPACE_CONFIG:-:4096:8}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"

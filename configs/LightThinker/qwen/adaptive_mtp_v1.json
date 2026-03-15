@@ -26,8 +26,8 @@
         "share_compression_token": false
     },
     "mtp": {
-        "mtp_loss_weight": 0.3,
-        "lm_loss_weight": 1.0,
+        "mtp_loss_weight": 0.5,
+        "lm_loss_weight": 0.5,
         "max_offset": 3
     }
 }

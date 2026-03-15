@@ -11,7 +11,6 @@ from copy import deepcopy
 from model_qwen import Qwen2ForCausalLM
 from model_llama import LlamaForCausalLM
 from transformers import Trainer, TrainingArguments, set_seed as hf_set_seed
-import torch.distributed as dist
 from transformers import TrainerCallback
 from transformers.integrations import TensorBoardCallback
 
@@ -48,112 +47,84 @@ class SaveTokenizerCallback(TrainerCallback):
             self.tokenizer.save_pretrained(checkpoint_folder)
 
 
-
-
 # ==========================================
-# 1. 定义外部存储容器 (用于暂存 Hook 抓取的数据)
+# 额外记录 自定义loss 到 TensorBoard（按实际 batch 聚合）
 # ==========================================
-class LossBuffer:
+class LossTracker:
     def __init__(self):
-        self.history = []
-    
-    def clear(self):
-        self.history = []
+        self.micro_lm_sum = 0.0
+        self.micro_mtp_sum = 0.0
+        self.micro_total_sum = 0.0
+        self.micro_count = 0
+        self.window_lm_sum = 0.0
+        self.window_mtp_sum = 0.0
+        self.window_total_sum = 0.0
+        self.window_step_count = 0
 
-# 实例化全局 Buffer
-loss_buffer = LossBuffer()
+    def add_micro(self, lm_loss: float, mtp_loss: float, total_loss: float):
+        self.micro_lm_sum += float(lm_loss)
+        self.micro_mtp_sum += float(mtp_loss)
+        self.micro_total_sum += float(total_loss)
+        self.micro_count += 1
 
-# ==========================================
-# 2. 定义 Hook 函数 (用于从模型 forward 中偷数据)
-# ==========================================
-def capture_loss_hook(module, input, output):
-    """
-    修复版 Hook：自动处理 Tensor 和 float 类型不一致的问题
-    """
-    # 1. 获取属性，如果不存在则默认为 0.0
-    raw_lm = getattr(module, '_last_lm_loss', 0.0)
-    raw_mtp = getattr(module, '_last_mtp_loss', 0.0)
-    
-    # 2. 定义一个辅助逻辑：确保输出统一为 Tensor
-    # 这样 Callback 里的 .item() 才能正常工作
-    def safe_detach(val):
-        if isinstance(val, torch.Tensor):
-            return val.detach().cpu() # 移到 CPU 以节省显存
-        else:
-            return torch.tensor(float(val)) # 如果是 float，这就包装成 Tensor
-            
-    # 3. 存入 buffer
-    loss_buffer.history.append({
-        "lm": safe_detach(raw_lm),
-        "mtp": safe_detach(raw_mtp)
-    })
-
-# ==========================================
-# 3. 定义 Callback (用于汇总计算并写入 Log)
-# ==========================================
-class MTPLossCallback(TrainerCallback):
-    def __init__(self, buffer_instance):
-        self.buffer = buffer_instance
-        self.local_stats = {"lm_sum": 0.0, "mtp_sum": 0.0, "micro_count": 0}
-
-    def on_step_end(self, args, state, control, **kwargs):
-        # 从外部 buffer 读取数据
-        history = self.buffer.history
-        
-        if not history:
+    def flush_micro_to_step(self):
+        if self.micro_count == 0:
             return
+        # 一个 optimizer step 内多个 micro-batch 先求和，再作为一个“实际 batch”
+        self.window_lm_sum += self.micro_lm_sum
+        self.window_mtp_sum += self.micro_mtp_sum
+        self.window_total_sum += self.micro_total_sum
+        self.window_step_count += 1
+        self.micro_lm_sum = 0.0
+        self.micro_mtp_sum = 0.0
+        self.micro_total_sum = 0.0
+        self.micro_count = 0
 
-        # 统计当前 optimizer step 内所有 micro-batch 的损失总和与数量
-        local_step_lm_sum = sum(item["lm"].item() for item in history)
-        local_step_mtp_sum = sum(item["mtp"].item() for item in history)
-        micro_count = len(history)
-        
-        self.local_stats["lm_sum"] += local_step_lm_sum
-        self.local_stats["mtp_sum"] += local_step_mtp_sum
-        self.local_stats["micro_count"] += micro_count
-        
-        # 【关键】清空 Buffer，防止内存溢出和数据混淆
-        self.buffer.clear()
+    def pop_window_avg(self):
+        if self.window_step_count == 0:
+            return None
+        avg_lm = self.window_lm_sum / self.window_step_count
+        avg_mtp = self.window_mtp_sum / self.window_step_count
+        avg_total = self.window_total_sum / self.window_step_count
+        self.window_lm_sum = 0.0
+        self.window_mtp_sum = 0.0
+        self.window_total_sum = 0.0
+        self.window_step_count = 0
+        return avg_lm, avg_mtp, avg_total
+
+
+loss_tracker = LossTracker()
+
+
+def capture_loss_hook(module, input, output):
+    lm_loss = getattr(module, "_last_lm_loss", 0.0)
+    mtp_loss = getattr(module, "_last_mtp_loss", 0.0)
+    lm_weight = float(getattr(module, "lm_loss_weight", 1.0))
+    mtp_weight = float(getattr(module, "mtp_loss_weight", 1.0))
+    if isinstance(lm_loss, torch.Tensor):
+        lm_loss = lm_loss.detach().float().item()
+    if isinstance(mtp_loss, torch.Tensor):
+        mtp_loss = mtp_loss.detach().float().item()
+    total_loss = lm_weight * float(lm_loss) + mtp_weight * float(mtp_loss)
+    loss_tracker.add_micro(lm_loss, mtp_loss, total_loss)
+
+
+class CustomLossCallback(TrainerCallback):
+    def on_step_end(self, args, state, control, **kwargs):
+        loss_tracker.flush_micro_to_step()
 
     def on_log(self, args, state, control, logs=None, **kwargs):
-        if logs is not None and self.local_stats["micro_count"] > 0:
-            local_lm_sum = self.local_stats["lm_sum"]
-            local_mtp_sum = self.local_stats["mtp_sum"]
-            local_micro_count = float(self.local_stats["micro_count"])
-            
-            # === DeepSpeed 多卡同步核心逻辑 ===
-            if dist.is_initialized():
-                # 同步 sum 与 count，做全局加权平均，避免卡间样本数不一致带来的偏差
-                metrics = torch.tensor(
-                    [local_lm_sum, local_mtp_sum, local_micro_count],
-                    dtype=torch.float64,
-                    device=args.device,
-                )
-                
-                # 所有显卡的数据相加 (ReduceOp.SUM)
-                dist.all_reduce(metrics, op=dist.ReduceOp.SUM)
-                
-                global_micro_count = max(metrics[2].item(), 1.0)
-                global_avg_lm = (metrics[0] / global_micro_count).item()
-                global_avg_mtp = (metrics[1] / global_micro_count).item()
-            else:
-                global_avg_lm = local_lm_sum / max(local_micro_count, 1.0)
-                global_avg_mtp = local_mtp_sum / max(local_micro_count, 1.0)
-
-            model = kwargs.get("model", None)
-            if model is not None and hasattr(model, "module"):
-                model = model.module
-            mtp_lambda = float(getattr(model, "mtp_lambda", 1.0)) if model is not None else 1.0
-            global_avg_total = global_avg_lm + mtp_lambda * global_avg_mtp
-
-            # 写入 Log (Trainer 会自动发送给 TensorBoard)
-            # 覆盖 Trainer 默认 loss，使终端显示口径与 lm_loss/mtp_loss 一致
-            logs['loss'] = round(global_avg_total, 4)
-            logs['lm_loss'] = round(global_avg_lm, 4)
-            logs['mtp_loss'] = round(global_avg_mtp, 4)
-            
-            # 重置计数器
-            self.local_stats = {"lm_sum": 0.0, "mtp_sum": 0.0, "micro_count": 0}
+        if logs is None:
+            return
+        window_avg = loss_tracker.pop_window_avg()
+        if window_avg is None:
+            return
+        lm_loss, mtp_loss, total_loss = window_avg
+        logs["lm_loss"] = round(float(lm_loss), 4)
+        logs["mtp_loss"] = round(float(mtp_loss), 4)
+        logs["step_total_loss"] = round(float(total_loss), 4)
+        # 终端/TensorBoard 的 loss 使用同一 step 口径与同一权重公式
+        logs["loss"] = round(float(total_loss), 4)
 
 def set_global_seed(seed: int) -> None:
     random.seed(seed)
@@ -210,7 +181,7 @@ def get_parser():
 def get_model_and_tokenizer(
     args,
     comp_config:Config
-) -> Tuple[Union[Qwen2ForCausalLM, LlamaForCausalLM], Tokenizer]:
+) -> Tuple[Union[Qwen2ForCausalLM, LlamaForCausalLM], Tokenizer, Any]:
 
     special_token_list:List[str] = list()
     special_token_desp_dict = dict()
@@ -253,10 +224,9 @@ def get_model_and_tokenizer(
         model = model_class.from_pretrained(
             args.model_path, torch_dtype=torch.bfloat16
         )
-    
-    # 1. 挂载钩子 (核心步骤)
-    hook_handle = model.register_forward_hook(capture_loss_hook)
 
+    hook_handle = model.register_forward_hook(capture_loss_hook)
+    
     model.add_qkv(
         q='q' in args.qkv,
         k='k' in args.qkv,
@@ -408,7 +378,7 @@ def main():
         train_dataset=dataset,
         args=training_config,
         data_collator=data_collator,
-        callbacks=[SaveTokenizerCallback(tokenizer), MTPLossCallback(loss_buffer)]  # 添加回调
+        callbacks=[SaveTokenizerCallback(tokenizer), CustomLossCallback()]  # 增加 mtp_loss lm_loss 监控
     )
 
     # 1. 弹出默认的 TensorBoardCallback (它目前排在队列最前面)
@@ -419,15 +389,12 @@ def main():
         trainer.add_callback(tb_callback)
 
     try:
-        # 在加载检查点时使用上下文管理器
         if resume_from_checkpoint:
             trainer.train(resume_from_checkpoint=resume_from_checkpoint)
         else:
             trainer.train()
     finally:
-        # 无论训练正常结束还是异常退出，都清理 hook
         hook_handle.remove()
-        print("Hook removed successfully.")
     
 
 
