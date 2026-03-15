@@ -1352,13 +1352,14 @@ def _sentence_level_generate(
         if predicted_token_id == comp_config.split_token_id:
             IS_COMP_MODE = True
 
-            # print
-            print(tokenizer.decode(token_utils._current_input_ids))
+            # print(tokenizer.decode(token_utils._current_input_ids))
 
+            last_pos_raw = int(token_utils.get_position_ids()[0, -1].item())
             if use_EPL:
-                cot_length = int(position_ids[0][0].item()) + 2 - cot_start
+                last_pos_epl = last_pos_raw - use_compression_all_count
+                cot_length = last_pos_epl + 2 - cot_start
             else:
-                cot_length = int(position_ids[0][0].item()) + 2 - van_cot_start
+                cot_length = last_pos_raw + 2 - van_cot_start
             new_input_ids.extend(
                 comp_config.get_output_comp_token_id(cot_length=cot_length)
             )
@@ -1559,10 +1560,12 @@ def _sentence_mtp_level_generate(
             if new_input_ids[0] == comp_config.split_token_id:
                 IS_COMP_MODE = True
 
+                last_pos_raw = int(token_utils.get_position_ids()[0, -1].item())
                 if use_EPL:
-                    cot_length = int(position_ids[0][0].item()) + 2 - cot_start
+                    last_pos_epl = last_pos_raw - use_compression_all_count
+                    cot_length = last_pos_epl + 2 - cot_start
                 else:
-                    cot_length = int(position_ids[0][0].item()) + 2 - van_cot_start
+                    cot_length = last_pos_raw + 2 - van_cot_start
 
                 new_input_ids.extend(
                     comp_config.get_output_comp_token_id(cot_length=cot_length)

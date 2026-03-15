@@ -44,18 +44,20 @@ to_abs_path() {
 
 csv_to_array() {
     local input="$1"
-    local -n out_arr="$2"
+    local out_name="$2"
     local old_ifs="${IFS}"
+    local raw_arr=()
     IFS=','
-    read -r -a out_arr <<< "${input}"
+    read -r -a raw_arr <<< "${input}"
     IFS="${old_ifs}"
     local cleaned=()
-    for item in "${out_arr[@]}"; do
+    local item
+    for item in "${raw_arr[@]}"; do
         item="$(echo "${item}" | xargs)"
         [[ -n "${item}" ]] || continue
         cleaned+=("${item}")
     done
-    out_arr=("${cleaned[@]}")
+    eval "${out_name}=(\"\${cleaned[@]}\")"
 }
 
 link_latest() {
