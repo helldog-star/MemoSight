@@ -133,10 +133,6 @@ def set_global_seed(seed: int) -> None:
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
     hf_set_seed(seed)
-    # 尽量保证可复现（某些算子在特定硬件/后端下仍可能存在微小差异）
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
-    torch.use_deterministic_algorithms(True, warn_only=True)
 
 def get_parser():
     parser = argparse.ArgumentParser()

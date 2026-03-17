@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-
+set -x
 set -euo pipefail
 
 export NCCL_P2P_DISABLE="1"

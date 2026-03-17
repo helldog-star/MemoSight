@@ -1360,6 +1360,7 @@ def _sentence_level_generate(
                 cot_length = last_pos_epl + 2 - cot_start
             else:
                 cot_length = last_pos_raw + 2 - van_cot_start
+            
             new_input_ids.extend(
                 comp_config.get_output_comp_token_id(cot_length=cot_length)
             )
