@@ -2260,25 +2260,7 @@ def generate(
             repetition_penalty=repetition_penalty
         )
     elif comp_config.output_comp_level == 'sentence':
-        if aux_config is None:
-            prompt, output = _sentence_level_generate(
-                model=model,
-                tokenizer=tokenizer,
-                comp_config=comp_config,
-                max_new_tokens=max_new_tokens,
-                attention_config=attention_config,
-                prefill_compress=prefill_compress,
-                exclude_continue=exclude_continue,
-                attn_utils=attn_utils,
-                kv_utils=kv_utils,
-                token_utils=token_utils,
-                predicted_token_id=predicted_token_id,
-                update_attention_method=update_attention_method,
-                use_EPL=use_EPL,
-                repetition_penalty=repetition_penalty,
-            )
-        else:
-
+        if comp_config.mtp_cfg:
             # mtp register generation
             prompt, output = _sentence_level_mtp_register_generate(
                 model=model,
@@ -2298,6 +2280,24 @@ def generate(
                 repetition_penalty=repetition_penalty,
                 aux_config=aux_config
             )
+        else:
+            prompt, output = _sentence_level_generate(
+                model=model,
+                tokenizer=tokenizer,
+                comp_config=comp_config,
+                max_new_tokens=max_new_tokens,
+                attention_config=attention_config,
+                prefill_compress=prefill_compress,
+                exclude_continue=exclude_continue,
+                attn_utils=attn_utils,
+                kv_utils=kv_utils,
+                token_utils=token_utils,
+                predicted_token_id=predicted_token_id,
+                update_attention_method=update_attention_method,
+                use_EPL=use_EPL,
+                repetition_penalty=repetition_penalty,
+            )
+            
 
             # # traditional mtp generation
             # mtp_depth = aux_config.get("mtp_depth", 0)
@@ -2601,11 +2601,12 @@ def main():
     model, tokenizer = get_model_and_tokenizer(
         args, comp_config
     )
-    if args.aux_config is not None:
-        with open(args.aux_config, "r", encoding='utf-8') as f:
-            aux_config = json.load(f)
-    else:
-        aux_config = None
+    # if args.aux_config is not None:
+    #     with open(args.aux_config, "r", encoding='utf-8') as f:
+    #         aux_config = json.load(f)
+    # else:
+    #     aux_config = None
+
     # task_list = [
     #     (MMLUReader(), "mmlu"),
     #     (GSM8KReader(), "gsm8k"),

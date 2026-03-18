@@ -187,12 +187,13 @@ class Evaluator:
             (f"acc: {metrics['correct']}/{metrics['total']}"),
             (f"acc: {round(metrics['correct']/metrics['total']*100, 2)}"),
             (f"time: {round(sum(metrics['infer_time_list'])/3600, 2)}"),
+            (f"speed: {round(sum(metrics['output_len_list'])/sum(metrics['infer_time_list']), 2) if sum(metrics['infer_time_list']) > 0 else 0} tok/s"),
             (f"attend: {self.avg(metrics['attend_list'])}"),
             (f"output len: {self.avg(metrics['output_len_list'])}"),
             (f"total len: {self.avg(metrics['total_len_list'])}"),
             (f"peak mem: {self.avg(metrics['peak_mem_list'])}"),
             (f"compress: {self.avg(metrics['compress_cnt_list'])}"),
-            (f"{round(metrics['correct']/metrics['total']*100, 2)},{round(sum(metrics['infer_time_list'])/3600, 2)},{int(round(self.avg(metrics['attend_list']),0))},{int(round(self.avg(metrics['output_len_list']), 0))},{int(round(self.avg(metrics['peak_mem_list']),0))},{int(round(self.avg(metrics['compress_cnt_list']),0))}"),
+            (f"{round(metrics['correct']/metrics['total']*100, 2)},{round(sum(metrics['infer_time_list'])/3600, 2)},{round(sum(metrics['output_len_list'])/sum(metrics['infer_time_list']), 2) if sum(metrics['infer_time_list']) > 0 else 0},{int(round(self.avg(metrics['attend_list']),0))},{int(round(self.avg(metrics['output_len_list']), 0))},{int(round(self.avg(metrics['peak_mem_list']),0))},{int(round(self.avg(metrics['compress_cnt_list']),0))}"),
         ]
         result_path = f'{base_path}/result.txt'
         if not os.path.exists(result_path):
