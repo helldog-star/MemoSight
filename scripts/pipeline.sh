@@ -103,11 +103,14 @@ print_help() {
   --seed                     随机种子（默认 42）
 
 推理相关:
-  --ckpt                     checkpoint 编号；不传自动取最新
+  --model_path               直接指定模型路径时可仅用此路径推理（不需训练目录）；不传则从 <exp_root>/train/checkpoint-* 取
+  --tokenizer_path           tokenizer 路径；使用 --model_path 直接推理时可不传，默认与 model_path 一致
+  --ckpt                     checkpoint 编号；不传自动取最新（仅当未传 model_path 时有效）
   --repetition_penalty       默认 1.1
   --target_gpus              推理卡号，逗号分隔（默认 0,1,2,3,4,5,6,7）
   --process_per_gpu          每卡进程数（默认 4）
   --max_new_tokens           默认 10240
+  --spec_decode             是否启用投机解码 true/false（默认 false）
 
 评估相关:
   --eval_method              默认 normal
@@ -171,6 +174,7 @@ save_param_snapshot() {
         echo "target_gpus=${TARGET_GPUS}"
         echo "process_per_gpu=${PROCESS_PER_GPU}"
         echo "max_new_tokens=${MAX_NEW_TOKENS}"
+        echo "spec_decode=${SPEC_DECODE}"
         echo "seed=${SEED}"
     } > "${snapshot}"
     link_latest "${snapshot}" "run_latest.txt"
@@ -237,14 +241,27 @@ run_train() {
 }
 
 run_infer() {
-    require_non_empty "--tokenizer_path" "${TOKENIZER_PATH}"
     local infer_py="${ROOT_DIR}/LightThinker/inference.py"
     require_file "${infer_py}"
 
-    local train_dir="${EXP_ROOT}/train"
+    local infer_model_path
     local resolved_ckpt
-    resolved_ckpt="$(resolve_ckpt "${train_dir}" "${CKPT}")"
-    local model_path="${train_dir}/checkpoint-${resolved_ckpt}"
+    local tokenizer_path_infer
+
+    # 若指定了可用的 --model_path，则直接用于推理（无需训练目录）
+    if [[ -n "${MODEL_PATH}" ]] && [[ -e "${MODEL_PATH}" ]]; then
+        infer_model_path="${MODEL_PATH}"
+        resolved_ckpt="-1"
+        tokenizer_path_infer="${TOKENIZER_PATH:-${MODEL_PATH}}"
+        log "使用指定模型路径进行推理: ${infer_model_path}"
+    else
+        require_non_empty "--tokenizer_path" "${TOKENIZER_PATH}"
+        tokenizer_path_infer="${TOKENIZER_PATH}"
+        local train_dir="${EXP_ROOT}/train"
+        resolved_ckpt="$(resolve_ckpt "${train_dir}" "${CKPT}")"
+        infer_model_path="${train_dir}/checkpoint-${resolved_ckpt}"
+    fi
+
     local output_tag="${EXP_ROOT}/inference"
     local model_short_tag="${EXP_TAG}"
 
@@ -277,7 +294,7 @@ run_infer() {
                 --model_tag "${EXP_TAG}" \
                 --model_short_tag "${model_short_tag}" \
                 --ckpt "${resolved_ckpt}" \
-                --tokenizer_path "${TOKENIZER_PATH}" \
+                --tokenizer_path "${tokenizer_path_infer}" \
                 --compress_config "${COMP_CONFIG}" \
                 --max_new_tokens "${MAX_NEW_TOKENS}" \
                 --repetition_penalty "${REPETITION_PENALTY}" \
@@ -296,8 +313,9 @@ run_infer() {
                 --update_attention_method "local" \
                 --split_size "${split_size}" \
                 --use_EPL "${USE_EPL}" \
-                --model_path "${model_path}" \
+                --model_path "${infer_model_path}" \
                 --index "${real_index}" \
+                --spec_decode "${SPEC_DECODE}" \
                 --datasets "${ds_arr[@]}" \
                 > "${output_tag}/inference_log/false_false/${real_index}_${model_short_tag}_${resolved_ckpt}.txt" 2>&1 &
             pids+=("$!")
@@ -408,6 +426,7 @@ PREFILL_COMPRESS="false"
 # 推理参数
 CKPT=""
 REPETITION_PENALTY="1.1"
+SPEC_DECODE="false"
 
 # 评估参数
 EVAL_METHOD="normal"
@@ -469,6 +488,7 @@ while [[ $# -gt 0 ]]; do
         --target_gpus) TARGET_GPUS="${2:-}"; shift 2 ;;
         --process_per_gpu) PROCESS_PER_GPU="${2:-}"; shift 2 ;;
         --max_new_tokens) MAX_NEW_TOKENS="${2:-}"; shift 2 ;;
+        --spec_decode) SPEC_DECODE="${2:-}"; shift 2 ;;
 
         # 评估参数
         --eval_method) EVAL_METHOD="${2:-}"; shift 2 ;;
@@ -500,7 +520,9 @@ log "exp_root=${EXP_ROOT}"
 
 case "${STAGE}" in
     train) run_train ;;
-    infer) run_infer ;;
+    infer) 
+        run_infer
+        run_eval ;;
     eval) run_eval ;;
     all)
         run_train
@@ -548,11 +570,12 @@ log "执行完成: ${STAGE}"
 # # 运行示例 infer
 # bash /mnt/lxy/RRcot/scripts/pipeline.sh \
 #   --stage infer \
-#   --exp_tag vanilla_qwen \
-#   --output_base_dir /mnt/lxy/RRcot/experiments \
+#   --model_path /mnt/zhaorunsong/lx/rrcot_test/epl_apa_mtp_w3e-1/train/checkpoint-245 \
+#   --output_base_dir /mnt/lxy/RRcot/experiments/debug_infer_spec_decode \
 #   --use_epl false \
+#   --spec_decode true \
 #   --model_type qwen \
-#   --tokenizer_path /mnt/lxy/hf_models/Qwen2.5-1.5B-Instruct \
-#   --target_gpus 0,1,2,3 \
+#   --tokenizer_path /mnt/lxy/hf_models/DeepSeek-R1-Distill-Qwen-1.5B \
+#   --target_gpus 0 \
 #   --process_per_gpu 1 \
-#   --datasets mmlu,gsm8k,gpqa,bbh
+#   --datasets mmlu

@@ -338,7 +338,8 @@ def get_parser():
         choices=['anchor-token', 'normal', 'kvcache', 'anchor-thought']
     )
 
-    parser.add_argument('--tokenizer_path', type=str)
+    parser.add_argument('--tokenizer_path', type=str, default=None, help='Tokenizer 路径；不传则使用 --model_path')
+    parser.add_argument('--model_path', type=str, default=None, help='模型/统一路径；当 tokenizer_path 未传时，tokenizer 也从此路径加载')
     parser.add_argument('--comp_config', type=str)
 
     parser.add_argument('--model_type', type=str, choices=['llama', 'qwen'])
@@ -366,7 +367,7 @@ def get_tokenizer_and_config(args) -> Tuple[Tokenizer, Config]:
     special_token_list:List[str] = list()
 
     tokenizer:Tokenizer = Tokenizer(
-        tokenizer_path=args.tokenizer_path if args.tokenizer_path != None else model_path,
+        tokenizer_path=args.tokenizer_path if args.tokenizer_path != None else args.model_path,
         bos_token=args.bos_token,
         eos_token=args.eos_token,
         special_token_list=None,
