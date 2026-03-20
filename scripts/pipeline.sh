@@ -87,7 +87,7 @@ print_help() {
   --lr                       学习率
   --mode                     训练模式（如 aug-wo-pc）
   --tokenizer_path           tokenizer 路径
-  --model_path               base model 路径
+  --train_model_path         训练初始化 base model 路径
   --train_data_path          训练数据路径
   --conf_version             压缩配置版本（默认 v1）
   --train_gpus               训练卡号，逗号分隔（默认 0,1,2,3,4,5,6,7）
@@ -103,14 +103,17 @@ print_help() {
   --seed                     随机种子（默认 42）
 
 推理相关:
-  --model_path               直接指定模型路径时可仅用此路径推理（不需训练目录）；不传则从 <exp_root>/train/checkpoint-* 取
-  --tokenizer_path           tokenizer 路径；使用 --model_path 直接推理时可不传，默认与 model_path 一致
-  --ckpt                     checkpoint 编号；不传自动取最新（仅当未传 model_path 时有效）
+  --infer_model_path         直接指定推理模型路径（不需训练目录）；不传则从 <exp_root>/train/checkpoint-* 取
+  --tokenizer_path           tokenizer 路径；使用 --infer_model_path 直接推理时可不传，默认与 infer_model_path 一致
+  --ckpt                     checkpoint 编号；不传自动取最新（仅当未传 infer_model_path 时有效）
   --repetition_penalty       默认 1.1
   --target_gpus              推理卡号，逗号分隔（默认 0,1,2,3,4,5,6,7）
   --process_per_gpu          每卡进程数（默认 4）
   --max_new_tokens           默认 10240
   --spec_decode             是否启用投机解码 true/false（默认 false）
+
+兼容参数:
+  --model_path               兼容旧参数：按 stage 映射到 train/infer；stage=all 时仅用于训练
 
 评估相关:
   --eval_method              默认 normal
@@ -166,7 +169,9 @@ save_param_snapshot() {
         echo "lr=${LR}"
         echo "mode=${MODE}"
         echo "tokenizer_path=${TOKENIZER_PATH}"
-        echo "model_path=${MODEL_PATH}"
+        echo "train_model_path=${TRAIN_MODEL_PATH}"
+        echo "infer_model_path=${INFER_MODEL_PATH}"
+        echo "legacy_model_path=${MODEL_PATH}"
         echo "train_data_path=${TRAIN_DATA_PATH}"
         echo "model_type=${MODEL_TYPE}"
         echo "datasets=${DATASETS}"
@@ -185,7 +190,7 @@ run_train() {
     require_non_empty "--lr" "${LR}"
     require_non_empty "--mode" "${MODE}"
     require_non_empty "--tokenizer_path" "${TOKENIZER_PATH}"
-    require_non_empty "--model_path" "${MODEL_PATH}"
+    require_non_empty "--train_model_path" "${TRAIN_MODEL_PATH}"
     require_non_empty "--train_data_path" "${TRAIN_DATA_PATH}"
 
     local train_py="${ROOT_DIR}/LightThinker/train.py"
@@ -205,7 +210,7 @@ run_train() {
     log "开始训练..."
     deepspeed --include "localhost:${TRAIN_GPUS}" "${train_py}" \
         --model_type "${MODEL_TYPE}" \
-        --model_path "${MODEL_PATH}" \
+        --model_path "${TRAIN_MODEL_PATH}" \
         --tokenizer_path "${TOKENIZER_PATH}" \
         --train_path "${TRAIN_DATA_PATH}" \
         --output_dir "${output_dir}" \
@@ -248,11 +253,11 @@ run_infer() {
     local resolved_ckpt
     local tokenizer_path_infer
 
-    # 若指定了可用的 --model_path，则直接用于推理（无需训练目录）
-    if [[ -n "${MODEL_PATH}" ]] && [[ -e "${MODEL_PATH}" ]]; then
-        infer_model_path="${MODEL_PATH}"
+    # 若指定了可用的 --infer_model_path，则直接用于推理（无需训练目录）
+    if [[ -n "${INFER_MODEL_PATH}" ]] && [[ -e "${INFER_MODEL_PATH}" ]]; then
+        infer_model_path="${INFER_MODEL_PATH}"
         resolved_ckpt="-1"
-        tokenizer_path_infer="${TOKENIZER_PATH:-${MODEL_PATH}}"
+        tokenizer_path_infer="${TOKENIZER_PATH:-${INFER_MODEL_PATH}}"
         log "使用指定模型路径进行推理: ${infer_model_path}"
     else
         require_non_empty "--tokenizer_path" "${TOKENIZER_PATH}"
@@ -398,6 +403,8 @@ USE_EPL="false"
 LR=""
 MODE=""
 TOKENIZER_PATH=""
+TRAIN_MODEL_PATH=""
+INFER_MODEL_PATH=""
 MODEL_PATH=""
 TRAIN_DATA_PATH=""
 CONF_VERSION="v1"
@@ -457,6 +464,8 @@ while [[ $# -gt 0 ]]; do
         --lr) LR="${2:-}"; shift 2 ;;
         --mode) MODE="${2:-}"; shift 2 ;;
         --tokenizer_path) TOKENIZER_PATH="${2:-}"; shift 2 ;;
+        --train_model_path) TRAIN_MODEL_PATH="${2:-}"; shift 2 ;;
+        --infer_model_path) INFER_MODEL_PATH="${2:-}"; shift 2 ;;
         --model_path) MODEL_PATH="${2:-}"; shift 2 ;;
         --train_data_path) TRAIN_DATA_PATH="${2:-}"; shift 2 ;;
         --conf_version) CONF_VERSION="${2:-}"; shift 2 ;;
@@ -507,6 +516,24 @@ done
 require_non_empty "--stage" "${STAGE}"
 [[ -d "${ROOT_DIR}" ]] || die "root_dir 不存在: ${ROOT_DIR}"
 
+# 兼容旧参数 --model_path：
+# - stage=train: 作为 --train_model_path
+# - stage=infer: 作为 --infer_model_path
+# - stage=all: 仅作为 --train_model_path（infer 默认走训练产物）
+if [[ -n "${MODEL_PATH}" ]]; then
+    case "${STAGE}" in
+        train)
+            [[ -n "${TRAIN_MODEL_PATH}" ]] || TRAIN_MODEL_PATH="${MODEL_PATH}"
+            ;;
+        infer)
+            [[ -n "${INFER_MODEL_PATH}" ]] || INFER_MODEL_PATH="${MODEL_PATH}"
+            ;;
+        all)
+            [[ -n "${TRAIN_MODEL_PATH}" ]] || TRAIN_MODEL_PATH="${MODEL_PATH}"
+            ;;
+    esac
+fi
+
 cd "${ROOT_DIR}"
 export PYTHONPATH="${ROOT_DIR}:${PYTHONPATH:-}"
 prepare_experiment_root
@@ -545,7 +572,7 @@ log "执行完成: ${STAGE}"
 #   --mode normal \
 #   --model_type qwen \
 #   --tokenizer_path /mnt/lxy/hf_models/Qwen2.5-1.5B-Instruct \
-#   --model_path /mnt/lxy/hf_models/DeepSeek-R1-Distill-Qwen-1.5B \
+#   --train_model_path /mnt/lxy/hf_models/DeepSeek-R1-Distill-Qwen-1.5B \
 #   --train_data_path /mnt/lxy/RRcot/data/train/train_debug.jsonl \
 #   --train_gpus 0,1,2,3
 
@@ -559,7 +586,7 @@ log "执行完成: ${STAGE}"
 #   --mode normal \
 #   --model_type qwen \
 #   --tokenizer_path /mnt/lxy/hf_models/Qwen2.5-1.5B-Instruct \
-#   --model_path /mnt/lxy/hf_models/DeepSeek-R1-Distill-Qwen-1.5B \
+#   --train_model_path /mnt/lxy/hf_models/DeepSeek-R1-Distill-Qwen-1.5B \
 #   --train_data_path /mnt/lxy/RRcot/data/train/train_debug.jsonl \
 #   --train_gpus 0,1,2,3 \
 #   --target_gpus 0,1,2,3 \
@@ -570,7 +597,7 @@ log "执行完成: ${STAGE}"
 # # 运行示例 infer
 # bash /mnt/lxy/RRcot/scripts/pipeline.sh \
 #   --stage infer \
-#   --model_path /mnt/zhaorunsong/lx/rrcot_test/epl_apa_mtp_w3e-1/train/checkpoint-245 \
+#   --infer_model_path /mnt/zhaorunsong/lx/rrcot_test/epl_apa_mtp_w3e-1/train/checkpoint-245 \
 #   --output_base_dir /mnt/lxy/RRcot/experiments/debug_infer_spec_decode \
 #   --use_epl false \
 #   --spec_decode true \
