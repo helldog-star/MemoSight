@@ -1532,10 +1532,6 @@ def _sentence_level_mtp_register_generate(
 ) -> Tuple[str,str]:
     assert update_attention_method in ["global", "local"]
 
-    import sys
-    # 将所有 print 输出重定向到临时文件
-    sys.stdout = open('/mnt/lxy/RRcot/debug_output.txt', 'w', encoding='utf-8')
-
     new_token_counters = 0
     eos_token_id = tokenizer.eos_token_id
     global_start:int = len(token_utils._whole_input_ids)
@@ -1591,6 +1587,9 @@ def _sentence_level_mtp_register_generate(
                 )
                 if register_token_count > 0:
                     step_input_ids.extend([comp_config.register_token_id] * register_token_count)
+                # 须在构造 attention mask 之前检查，否则 delta_attn 列切片可能被截断导致 shape 报错
+                if token_utils.max_length < len(step_input_ids) + token_utils._seen_tokens:
+                    break
                 new_length = len(step_input_ids)
                 if update_attention_method == 'global':
                     origin_length = len(token_utils._whole_input_ids)
@@ -1627,6 +1626,8 @@ def _sentence_level_mtp_register_generate(
                 if register_token_count > 0:
                     step_input_ids.extend([comp_config.register_token_id] * register_token_count)
 
+                if token_utils.max_length < len(step_input_ids) + token_utils._seen_tokens:
+                    break
                 new_length = len(step_input_ids)
                 if update_attention_method == 'global':
                     origin_length = len(token_utils._whole_input_ids)
@@ -1647,10 +1648,6 @@ def _sentence_level_mtp_register_generate(
             # primarily for the purpose of reduction.
             _local_mask_end = len(token_utils._current_input_ids) + 1
             # 2. position_ids and input_ids
-            if token_utils.max_length < len(step_input_ids) + token_utils._seen_tokens:
-                # exceed length
-                break
-
             input_ids, position_ids = token_utils.set_input_ids(step_input_ids, return_tensors=True)
             # if IS_COMP_MODE:
             #     van_cot_start = int(position_ids[0][-1].item()) + 1

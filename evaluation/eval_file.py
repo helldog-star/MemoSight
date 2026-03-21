@@ -265,9 +265,9 @@ class Evaluator:
                 model_output=item[model_output_key] + ("\n" + item['prompt'] if 'prompt' in item else "")
             )
             # Union rule: correct if either eval_file comparison or inference-time acc_state is True.
-            infer_acc_state = (item.get('acc_state', False) == True)
-            acc_state = (eval_acc_state == True) or infer_acc_state
-            if acc_state == True:
+            infer_acc_state = item.get('acc_state', False)
+            acc_state = eval_acc_state or infer_acc_state
+            if acc_state:
                 metrics['correct'] += 1
 
             # 2. Token and Peak Memory
