@@ -259,11 +259,14 @@ class Evaluator:
                 assert False
 
             # 1. Accuracy
-            acc_state = self.reference.compare(
+            eval_acc_state = self.reference.compare(
                 idx=item['idx'],
                 model_ans=item['model_answer'],
                 model_output=item[model_output_key] + ("\n" + item['prompt'] if 'prompt' in item else "")
             )
+            # Union rule: correct if either eval_file comparison or inference-time acc_state is True.
+            infer_acc_state = (item.get('acc_state', False) == True)
+            acc_state = (eval_acc_state == True) or infer_acc_state
             if acc_state == True:
                 metrics['correct'] += 1
 
