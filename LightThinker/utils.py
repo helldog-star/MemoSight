@@ -10,6 +10,43 @@ import torch
 
 IGNORE_LABEL_ID = -100
 
+
+def count_mtp_lm_loss_denominators(
+    labels: torch.Tensor,
+    register_token_index: torch.Tensor,
+    ignore_index: int = IGNORE_LABEL_ID,
+) -> Tuple[int, int]:
+    """
+    与 model_qwen / model_llama 中 MTP+LM 分支一致：用于 fixed_cross_entropy 的全局分母。
+    - mtp：register 位置且 label 非 ignore 的数量（与 CE 中未被 ignore 的项一致）。
+    - lm：非 register 展平后 shift，再扣掉跨序列边界，再统计非 ignore 的数量。
+    """
+    if labels is None or register_token_index is None:
+        return 0, 0
+    register_token_index = register_token_index.to(labels.device).bool()
+    labels = labels.to(register_token_index.device)
+    mtp_count = int((register_token_index & (labels != ignore_index)).sum().item())
+
+    non_register_mask = ~register_token_index
+    filtered_lm_labels = labels[non_register_mask]
+    if filtered_lm_labels.numel() == 0:
+        return mtp_count, 0
+
+    shift_lm_labels = filtered_lm_labels[1:].contiguous()
+    non_register_counts = non_register_mask.sum(dim=1)
+    if shift_lm_labels.numel() == 0:
+        return mtp_count, 0
+
+    valid_shift_mask = torch.ones(shift_lm_labels.size(0), dtype=torch.bool, device=labels.device)
+    boundary_pos = non_register_counts.cumsum(dim=0)[:-1] - 1
+    boundary_pos = boundary_pos[(boundary_pos >= 0) & (boundary_pos < valid_shift_mask.size(0))]
+    valid_shift_mask[boundary_pos] = False
+
+    safe_lm_labels = shift_lm_labels[valid_shift_mask]
+    lm_count = int((safe_lm_labels != ignore_index).sum().item())
+    return mtp_count, lm_count
+
+
 def str2bool(str_bool:str) -> bool:
     str_bool = str_bool[0].upper() + str_bool[1:].lower()
     return eval(str_bool)

@@ -21,13 +21,13 @@
         "token_name": "<|o_{t_id}|>",
         "token_desp": "compress output {t_id}",
         "meta_compress_step": 1,
-        "compression_ratio": 5,
+        "compression_ratio": 6,
         "forzen_model_train_mtp": false,
         "share_compression_token": false
     },
     "mtp": {
-        "mtp_loss_weight": 0.5,
-        "lm_loss_weight": 0.5,
+        "mtp_loss_weight": 0.3,
+        "lm_loss_weight": 0.7,
         "max_offset": 3
     }
 }

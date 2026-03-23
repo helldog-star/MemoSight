@@ -1272,6 +1272,8 @@ class Qwen2ForCausalLM(Qwen2PreTrainedModel, GenerationMixin):
 
         loss = None
         if labels is not None:
+            mtp_num_items_in_batch = loss_kwargs.pop("mtp_num_items_in_batch", None)
+            lm_num_items_in_batch = loss_kwargs.pop("lm_num_items_in_batch", None)
             # register_token_index 与 labels 已对齐：1 表示 MTP aux loss 区域
             register_token_index = loss_kwargs.pop("register_token_index", None)
 
@@ -1307,12 +1309,19 @@ class Qwen2ForCausalLM(Qwen2PreTrainedModel, GenerationMixin):
                 num_items_in_batch = loss_kwargs.get("num_items_in_batch", None)
                 if isinstance(num_items_in_batch, torch.Tensor):
                     num_items_in_batch = num_items_in_batch.item()
+                if isinstance(mtp_num_items_in_batch, torch.Tensor):
+                    mtp_num_items_in_batch = mtp_num_items_in_batch.item()
+                if isinstance(lm_num_items_in_batch, torch.Tensor):
+                    lm_num_items_in_batch = lm_num_items_in_batch.item()
+                # 未由 MTPTrainer 注入时回退为总有效 token 分母（旧行为）
+                mtp_den = mtp_num_items_in_batch if mtp_num_items_in_batch is not None else num_items_in_batch
+                lm_den = lm_num_items_in_batch if lm_num_items_in_batch is not None else num_items_in_batch
 
                 mtp_loss = (
                     fixed_cross_entropy(
                         mtp_logits.float(),
                         mtp_labels.to(mtp_logits.device),
-                        num_items_in_batch=num_items_in_batch,
+                        num_items_in_batch=mtp_den,
                         ignore_index=-100,
                     )
                     if mtp_labels.numel() > 0
@@ -1322,7 +1331,7 @@ class Qwen2ForCausalLM(Qwen2PreTrainedModel, GenerationMixin):
                     fixed_cross_entropy(
                         safe_lm_logits.float(),
                         safe_lm_labels.to(safe_lm_logits.device),
-                        num_items_in_batch=num_items_in_batch,
+                        num_items_in_batch=lm_den,
                         ignore_index=-100,
                     )
                     if safe_lm_labels.numel() > 0

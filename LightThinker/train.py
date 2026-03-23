@@ -26,9 +26,78 @@ else:
 # =========================================
 
 from config import Config
-from LightThinker.utils import _print, IGNORE_LABEL_ID, str2bool
+from LightThinker.utils import _print, IGNORE_LABEL_ID, str2bool, count_mtp_lm_loss_denominators
 from tokenizer import Tokenizer
 from dataset import MyDataset, MyDataCollator
+
+
+class CustomTrainer(Trainer):
+    """
+    在「一次 optimizer step」内先 prefetch 全部 micro-batch，再为本 step 聚合 MTP / LM 各自的全局有效 token 数，
+    并注入 forward，使 fixed_cross_entropy 的 sum / N_global 与梯度累计、多卡 gather 语义一致。
+    """
+
+    def get_batch_samples(self, epoch_iterator, num_batches):
+        batch_samples = []
+        for _ in range(num_batches):
+            try:
+                batch_samples += [next(epoch_iterator)]
+            except StopIteration:
+                break
+
+        self._mtp_num_items_in_batch = None
+        self._lm_num_items_in_batch = None
+
+        if not self.model_accepts_loss_kwargs:
+            return batch_samples, None
+
+        num_items_in_batch = None
+        if len(batch_samples) > 0 and "labels" in batch_samples[0]:
+            try:
+                num_items_in_batch = sum((batch["labels"].ne(-100)).sum() for batch in batch_samples)
+            except (TypeError, AttributeError):
+                pass
+
+        mtp_total = 0
+        lm_total = 0
+        has_reg = False
+        for batch in batch_samples:
+            reg = batch.get("register_token_index", None)
+            if reg is not None:
+                has_reg = True
+                m, l = count_mtp_lm_loss_denominators(batch["labels"], reg)
+                mtp_total += m
+                lm_total += l
+
+        if self.args.average_tokens_across_devices and num_items_in_batch is not None:
+            num_items_in_batch = self.accelerator.gather(num_items_in_batch).sum().item()
+
+        if has_reg:
+            if self.args.average_tokens_across_devices:
+                device = self.args.device
+                mtp_t = torch.tensor(mtp_total, device=device, dtype=torch.long)
+                lm_t = torch.tensor(lm_total, device=device, dtype=torch.long)
+                mtp_total = self.accelerator.gather(mtp_t).sum().item()
+                lm_total = self.accelerator.gather(lm_t).sum().item()
+            self._mtp_num_items_in_batch = mtp_total
+            self._lm_num_items_in_batch = lm_total
+
+        return batch_samples, num_items_in_batch
+
+    def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
+        if self.model_accepts_loss_kwargs:
+            loss_kwargs = {}
+            if num_items_in_batch is not None:
+                loss_kwargs["num_items_in_batch"] = num_items_in_batch
+            mtp_n = getattr(self, "_mtp_num_items_in_batch", None)
+            lm_n = getattr(self, "_lm_num_items_in_batch", None)
+            if mtp_n is not None:
+                loss_kwargs["mtp_num_items_in_batch"] = mtp_n
+            if lm_n is not None:
+                loss_kwargs["lm_num_items_in_batch"] = lm_n
+            inputs = {**inputs, **loss_kwargs}
+        return super().compute_loss(model, inputs, return_outputs=return_outputs, num_items_in_batch=None)
+
 
 class SaveTokenizerCallback(TrainerCallback):
     """保存checkpoint同时保存tokenizer"""
@@ -369,7 +438,7 @@ def main():
         seed=args.seed,
     )
     
-    trainer = Trainer(
+    trainer = CustomTrainer(
         model=model,
         train_dataset=dataset,
         args=training_config,
