@@ -1198,7 +1198,8 @@ class LlamaForCausalLM(LlamaPreTrainedModel, GenerationMixin):
         self.vocab_size = config.vocab_size
         self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
 
-        self.mtp_lambda = getattr(config, "mtp_lambda", 1.0)
+        self.mtp_loss_weight = getattr(config, "mtp_loss_weight", 1.0)
+        self.lm_loss_weight = getattr(config, "lm_loss_weight", 1.0)
 
         # Initialize weights and apply final processing
         self.post_init()
