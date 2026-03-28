@@ -1837,7 +1837,7 @@ def _sentence_level_mtp_register_generate(
                         token_utils.reduce_input_ids(start=trim_start, end=trim_end)
                         accepted_len = effective_accepted_len
                     
-
+                    token_utils.show_output_input_ids.append(draft_tokens[0])
                     for tok in extra_accepted:
                         token_utils.show_output_input_ids.append(tok)
 

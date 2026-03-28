@@ -208,7 +208,7 @@ run_train() {
     require_file "${ds_cfg}"
 
     log "开始训练..."
-    deepspeed --include "localhost:${TRAIN_GPUS}" "${train_py}" \
+    deepspeed --master_port=54212 --include "localhost:${TRAIN_GPUS}" "${train_py}" \
         --model_type "${MODEL_TYPE}" \
         --model_path "${TRAIN_MODEL_PATH}" \
         --tokenizer_path "${TOKENIZER_PATH}" \
@@ -577,20 +577,24 @@ log "执行完成: ${STAGE}"
 #   --train_gpus 0,1,2,3
 
 # # 运行示例 all
-# bash /mnt/lxy/RRcot/scripts/pipeline.sh \
-#   --stage all \
-#   --exp_tag vanilla_qwen \
-#   --output_base_dir /mnt/lxy/RRcot/experiments \
-#   --use_epl false \
-#   --lr 1e-5 \
-#   --mode normal \
+# bash /mnt/zhaorunsong/lx/mem-co-t/scripts/pipeline.sh \
+#   --stage train \
+#   --exp_tag epl_mtp_1 \
+#   --output_base_dir /mnt/zhaorunsong/lx/rrcot_test/experiments \
+#   --use_epl true \
+#   --lr 2e-5 \
+#   --mode aug-wo-pc-apa-mtp \
 #   --model_type qwen \
-#   --tokenizer_path /mnt/lxy/hf_models/Qwen2.5-1.5B-Instruct \
-#   --train_model_path /mnt/lxy/hf_models/DeepSeek-R1-Distill-Qwen-1.5B \
-#   --train_data_path /mnt/lxy/RRcot/data/train/train_debug.jsonl \
-#   --train_gpus 0,1,2,3 \
-#   --target_gpus 0,1,2,3 \
+#   --tokenizer_path /mnt/zhaorunsong/models/qwen2-0.5B-Instruct \
+#   --train_model_path /mnt/zhaorunsong/models/qwen2-0.5B-Instruct \
+#   --train_data_path /mnt/zhaorunsong/lx/mem-co-t/data/train/train_test.jsonl \
+#   --train_gpus 0,5,6,7 \
+#   --target_gpus 0,5,6,7 \
 #   --process_per_gpu 1 \
+#   --comp_config "adaptive_mtp_v1" \
+#   --conf_version "adaptive_mtp_v1" \
+#   --max_length 2048 \
+#   --spec_decode True \
 #   --datasets mmlu,gsm8k,gpqa,bbh
 
 
