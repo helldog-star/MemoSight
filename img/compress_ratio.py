@@ -8,9 +8,9 @@ def plot_professional_tradeoff():
     comp_levels = np.array(['2x', '4x', '8x', '16x'])
     x = np.arange(len(comp_levels))
     # 对应的准确率数据
-    accuracy = np.array([68.41, 65.52, 64.71, 60.23])
+    accuracy = np.array([68.41, 65.52, 64.71, 61.72])
     # 对应的 Peak(Token) 指标 (模拟数据，用于柱状图)
-    peak_token = np.array([2041, 1515, 1051, 800])
+    peak_token = np.array([2041, 1515, 1051, 944])
 
     # --- 2. 风格配置 ---
     plt.style.use('seaborn-v0_8-whitegrid') # 使用干净的白网格背景

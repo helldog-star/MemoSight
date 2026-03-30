@@ -84,8 +84,8 @@ def generate_combined_figure():
 	ax_b = fig.add_subplot(gs[0, 1])
 	comp_levels = np.array(['2x', '4x', '8x', '16x'])
 	x_b = np.arange(len(comp_levels))
-	comp_acc = np.array([68.41, 65.52, 64.71, 60.23])
-	comp_peak = np.array([2041, 1515, 1051, 800])
+	comp_acc = np.array([68.41, 65.52, 64.71, 61.72])
+	comp_peak = np.array([2041, 1515, 1051, 944])
 
 	ax_b_r = ax_b.twinx()
 	bars_b = ax_b_r.bar(
