@@ -246,7 +246,7 @@ class AttentionUtils:
         # this is used for local attention.
         # as a matter of fact, if we use kv cache, the attention mask shape is [n_new_token, all_token]
         self.delta_attn = torch.full(
-            (max_comp_size + n_inst + n_continue + 1, max_length), fill_value=0., dtype=self.dtype, device=self.device
+            (max_length, max_length), fill_value=0., dtype=self.dtype, device=self.device
         )
         # this is used for global attention during inference.
         self.cur_attn = torch.triu(
