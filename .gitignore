@@ -49,3 +49,4 @@ meteor_evaluate.sh
 *.tar.gz
 
 experiments/
+outputs/
