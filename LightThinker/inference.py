@@ -1550,6 +1550,8 @@ def _sentence_level_mtp_register_generate(
     else:
         register_token_count = 0
 
+    register_token_count = 2
+
     # 在首次进入 split 分支前也需要一个可用 position_ids 基准
     position_ids = token_utils.get_position_ids()[:, -1:]
 
@@ -1776,6 +1778,9 @@ def _sentence_level_mtp_register_generate(
                     )
                     if use_EPL:
                         verify_position_ids = verify_position_ids - use_compression_all_count
+
+                    if verify_input_ids[0][0]==11:
+                        print("haha")
 
                     verify_output = model(
                         input_ids=verify_input_ids,
@@ -2286,3 +2291,12 @@ def main():
 
 if __name__ == '__main__':
     main()
+
+
+# CUDA_VISIBLE_DEVICES=4,5,6,7 python scripts/benchmark_figure_c_scaling.py \
+#   --model_path /mnt/lxy/hf_models/Qwen2.5-1.5B-Instruct \
+#   --model_type qwen \
+#   --bos_token "<|im_start|>" \
+#   --eos_token "<|im_end|>" \
+#   --output_dir outputs/bench_figure_c \
+#   --lengths 1024,2048,4096,8192,16384,32768
