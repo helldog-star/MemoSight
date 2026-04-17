@@ -31,6 +31,7 @@ import os
 import sys
 import time
 from copy import copy
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import List, Tuple
 
@@ -144,6 +145,40 @@ def _dummy_token_id(tokenizer: AutoTokenizer) -> int:
     return 0
 
 
+@dataclass
+class InferenceTimings:
+    """单次 greedy 跑完后的细粒度耗时（秒，CUDA 段前后均 synchronize）。"""
+
+    prep_s: float = 0.0  # tokenizer 编码 + prompt张量准备
+    prefill_s: float = 0.0  # 首次全序列 forward + 首步 logits / argmax
+    decode_phase_s: float = 0.0  # 自回归循环内耗时，不含 memcot 维护块
+    decode_forward_s: float = 0.0  # 循环内各步 model forward 累计（decode子项）
+    memcot_maint_s: float = 0.0  #仅 MemCoT：KV crop + 占位拼接；Vanilla 恒为 0
+
+    def decode_other_s(self) -> float:
+        return max(0.0, self.decode_phase_s - self.decode_forward_s)
+
+    def inner_sum_s(self) -> float:
+        return self.prep_s + self.prefill_s + self.decode_phase_s + self.memcot_maint_s
+
+
+def median_inference_timings(runs: List[InferenceTimings]) -> InferenceTimings:
+    if not runs:
+        return InferenceTimings()
+    arr = np.array(
+        [[r.prep_s, r.prefill_s, r.decode_phase_s, r.decode_forward_s, r.memcot_maint_s] for r in runs],
+        dtype=np.float64,
+    )
+    m = np.median(arr, axis=0)
+    return InferenceTimings(
+        prep_s=float(m[0]),
+        prefill_s=float(m[1]),
+        decode_phase_s=float(m[2]),
+        decode_forward_s=float(m[3]),
+        memcot_maint_s=float(m[4]),
+    )
+
+
 def parse_args():
     p = argparse.ArgumentParser(description="Figure (c)：Vanilla vs 脚本内 MemCoT 模拟（KV 裁切 + 占位压缩 token）")
     p.add_argument("--model_path", type=str, default=None, help="checkpoint 目录；不设则用 output/{model_tag}/checkpoint-{ckpt}")
@@ -212,14 +247,22 @@ def vanilla_greedy_fixed_steps(
     question: str,
     max_new_tokens: int,
     repetition_penalty: float,
-) -> int:
-    """标准自回归，严格 max_new_tokens 步（忽略 EOS）；返回 peak KV 序列长度。"""
+) -> Tuple[int, InferenceTimings]:
+    """标准自回归，严格 max_new_tokens 步（忽略 EOS）；返回 peak KV 序列长度与分段耗时。"""
+    timings = InferenceTimings()
+
+    sync_cuda()
+    t0 = time.perf_counter()
     input_ids = build_chat_prompt_ids(bos, eos, system_prompt, question, tokenizer)
     device = next(model.parameters()).device
     prompt_tensor = torch.as_tensor([input_ids], dtype=torch.long, device=device)
     generated: List[int] = []
+    timings.prep_s = time.perf_counter() - t0
 
+    sync_cuda()
+    t0 = time.perf_counter()
     outputs = model(input_ids=prompt_tensor, use_cache=True, return_dict=True)
+    sync_cuda()
     past_key_values = _normalize_past_key_values(outputs.past_key_values)
     logits = outputs.logits[0, -1, :]
 
@@ -241,17 +284,26 @@ def vanilla_greedy_fixed_steps(
 
     prompt_len = len(input_ids)
     peak = prompt_len
+    timings.prefill_s = time.perf_counter() - t0
 
+    decode_phase_acc = 0.0
+    decode_forward_acc = 0.0
     for _ in range(max_new_tokens):
+        sync_cuda()
+        t_iter0 = time.perf_counter()
         generated.append(next_id)
         peak = max(peak, prompt_len + len(generated))
         step = torch.tensor([[next_id]], dtype=torch.long, device=device)
+        sync_cuda()
+        tf0 = time.perf_counter()
         outputs = model(
             input_ids=step,
             past_key_values=past_key_values,
             use_cache=True,
             return_dict=True,
         )
+        sync_cuda()
+        decode_forward_acc += time.perf_counter() - tf0
         past_key_values = _normalize_past_key_values(outputs.past_key_values)
         logits = outputs.logits[0, -1, :]
         ctx_for_rep = torch.cat(
@@ -260,8 +312,11 @@ def vanilla_greedy_fixed_steps(
         )
         logits = apply_rep(logits, ctx_for_rep)
         next_id = torch.argmax(logits).item()
+        decode_phase_acc += time.perf_counter() - t_iter0
 
-    return peak
+    timings.decode_phase_s = decode_phase_acc
+    timings.decode_forward_s = decode_forward_acc
+    return peak, timings
 
 
 @torch.no_grad()
@@ -277,7 +332,7 @@ def memcot_sim_greedy_fixed_steps(
     chunk_tokens: int,
     compressed_tokens: int,
     dummy_id: int,
-) -> int:
+) -> Tuple[int, InferenceTimings]:
     """
     每生成 chunk_tokens 个 token：裁掉 KV 末尾 chunk_tokens，再在 cache 上拼接 compressed_tokens 格占位 K/V。
     单步 decode 的 model forward 次数与 Vanilla 相同（max_new_tokens 次）；压缩只做 tensor 裁剪/拼接。
@@ -287,13 +342,21 @@ def memcot_sim_greedy_fixed_steps(
     if compressed_tokens < 1:
         raise ValueError("compressed_tokens must be >= 1")
 
+    timings = InferenceTimings()
+
+    sync_cuda()
+    t0 = time.perf_counter()
     input_ids = build_chat_prompt_ids(bos, eos, system_prompt, question, tokenizer)
     device = next(model.parameters()).device
     prompt_tensor = torch.as_tensor([input_ids], dtype=torch.long, device=device)
     prompt_len = len(input_ids)
     generated: List[int] = []
+    timings.prep_s = time.perf_counter() - t0
 
+    sync_cuda()
+    t0 = time.perf_counter()
     outputs = model(input_ids=prompt_tensor, use_cache=True, return_dict=True)
+    sync_cuda()
     past_key_values = _normalize_past_key_values(outputs.past_key_values)
     logits = outputs.logits[0, -1, :]
 
@@ -315,17 +378,28 @@ def memcot_sim_greedy_fixed_steps(
 
     peak = prompt_len
     tokens_since_compress = 0
+    timings.prefill_s = time.perf_counter() - t0
+
+    decode_phase_acc = 0.0
+    decode_forward_acc = 0.0
 
     for _ in range(max_new_tokens):
+        sync_cuda()
+        t_iter0 = time.perf_counter()
+        dt_memcot = 0.0
         generated.append(next_id)
 
         step = torch.tensor([[next_id]], dtype=torch.long, device=device)
+        sync_cuda()
+        tf0 = time.perf_counter()
         outputs = model(
             input_ids=step,
             past_key_values=past_key_values,
             use_cache=True,
             return_dict=True,
         )
+        sync_cuda()
+        decode_forward_acc += time.perf_counter() - tf0
         past_key_values = _normalize_past_key_values(outputs.past_key_values)
         peak = max(peak, past_key_values.get_seq_length())
         logits = outputs.logits[0, -1, :]
@@ -342,14 +416,23 @@ def memcot_sim_greedy_fixed_steps(
             keep = seq_len - chunk_tokens
             if keep < 0:
                 raise RuntimeError("internal: keep < 0")
+            sync_cuda()
+            tm0 = time.perf_counter()
             past_key_values.crop(keep)
             generated = generated[:-chunk_tokens]
             _append_placeholder_kv(past_key_values, compressed_tokens)
             generated.extend([dummy_id] * compressed_tokens)
             peak = max(peak, past_key_values.get_seq_length())
             tokens_since_compress = 0
+            sync_cuda()
+            dt_memcot = time.perf_counter() - tm0
+            timings.memcot_maint_s += dt_memcot
 
-    return peak
+        decode_phase_acc += time.perf_counter() - t_iter0 - dt_memcot
+
+    timings.decode_phase_s = decode_phase_acc
+    timings.decode_forward_s = decode_forward_acc
+    return peak, timings
 
 
 def sync_cuda():
@@ -371,17 +454,27 @@ def _format_timing_line(label: str, median_s: float, times: List[float], peak: i
     )
 
 
+def _format_inference_breakdown(fine: InferenceTimings) -> str:
+    """四段：prep / prefill / decode(非 memcot) / memcot；decode 内另报 forward 与 other子项。"""
+    d_other = fine.decode_other_s()
+    return (
+        f"    └ breakdown (median): prep={fine.prep_s:.4f}s | prefill={fine.prefill_s:.4f}s | "
+        f"decode={fine.decode_phase_s:.4f}s (forward={fine.decode_forward_s:.4f}s, other={d_other:.4f}s) | "
+        f"memcot_maint={fine.memcot_maint_s:.4f}s | inner_sum={fine.inner_sum_s():.4f}s"
+    )
+
+
 @torch.no_grad()
 def time_vanilla(
     model,
     tokenizer: AutoTokenizer,
     args: argparse.Namespace,
     max_new_tokens: int,
-) -> Tuple[float, int, List[float]]:
+) -> Tuple[float, int, List[float], InferenceTimings, List[InferenceTimings]]:
     peak_last = 0
     for _ in range(args.warmup_runs):
         sync_cuda()
-        peak_last = vanilla_greedy_fixed_steps(
+        peak_last, _ = vanilla_greedy_fixed_steps(
             model=model,
             tokenizer=tokenizer,
             bos=args.bos_token,
@@ -393,10 +486,11 @@ def time_vanilla(
         )
         sync_cuda()
     times: List[float] = []
+    fine_runs: List[InferenceTimings] = []
     for _ in range(args.runs):
         sync_cuda()
         t0 = time.perf_counter()
-        peak_last = vanilla_greedy_fixed_steps(
+        peak_last, fine = vanilla_greedy_fixed_steps(
             model=model,
             tokenizer=tokenizer,
             bos=args.bos_token,
@@ -408,7 +502,8 @@ def time_vanilla(
         )
         sync_cuda()
         times.append(time.perf_counter() - t0)
-    return median(times), peak_last, times
+        fine_runs.append(fine)
+    return median(times), peak_last, times, median_inference_timings(fine_runs), fine_runs
 
 
 @torch.no_grad()
@@ -418,11 +513,11 @@ def time_memcot_sim(
     args: argparse.Namespace,
     max_new_tokens: int,
     dummy_id: int,
-) -> Tuple[float, int, List[float]]:
+) -> Tuple[float, int, List[float], InferenceTimings, List[InferenceTimings]]:
     peak_last = 0
     for _ in range(args.warmup_runs):
         sync_cuda()
-        peak_last = memcot_sim_greedy_fixed_steps(
+        peak_last, _ = memcot_sim_greedy_fixed_steps(
             model=model,
             tokenizer=tokenizer,
             bos=args.bos_token,
@@ -437,10 +532,11 @@ def time_memcot_sim(
         )
         sync_cuda()
     times: List[float] = []
+    fine_runs: List[InferenceTimings] = []
     for _ in range(args.runs):
         sync_cuda()
         t0 = time.perf_counter()
-        peak_last = memcot_sim_greedy_fixed_steps(
+        peak_last, fine = memcot_sim_greedy_fixed_steps(
             model=model,
             tokenizer=tokenizer,
             bos=args.bos_token,
@@ -455,7 +551,8 @@ def time_memcot_sim(
         )
         sync_cuda()
         times.append(time.perf_counter() - t0)
-    return median(times), peak_last, times
+        fine_runs.append(fine)
+    return median(times), peak_last, times, median_inference_timings(fine_runs), fine_runs
 
 
 def plot_figure_c(
@@ -579,6 +676,13 @@ def plot_figure_c(
     plt.close(fig)
 
 
+def timings_to_jsonable(t: InferenceTimings) -> dict:
+    d = asdict(t)
+    d["decode_other_s"] = t.decode_other_s()
+    d["inner_sum_s"] = t.inner_sum_s()
+    return d
+
+
 def args_to_jsonable(ns: argparse.Namespace) -> dict:
     d = vars(ns).copy()
     for k, v in d.items():
@@ -631,6 +735,10 @@ def main():
         "ours_time_per_run_s": [],
         "vanilla_peak_tokens": [],
         "ours_peak_tokens": [],
+        "vanilla_breakdown_median_s": [],
+        "vanilla_breakdown_per_run_s": [],
+        "ours_breakdown_median_s": [],
+        "ours_breakdown_per_run_s": [],
         "prompt_stats": {
             "user_question_tokens": user_tok,
             "full_prompt_tokens": full_tok,
@@ -642,7 +750,7 @@ def main():
     if torch.cuda.is_available():
         wlen = min(args.warmup_length, lengths[0])
         if not args.skip_vanilla:
-            vanilla_greedy_fixed_steps(
+            _, _ = vanilla_greedy_fixed_steps(
                 model,
                 tokenizer,
                 args.bos_token,
@@ -656,32 +764,42 @@ def main():
             warm_args = copy(args)
             warm_args.warmup_runs = 0
             warm_args.runs = 1
-            _, _, _ = time_memcot_sim(model, tokenizer, warm_args, wlen, dummy_id)
+            _, _, _, _, _ = time_memcot_sim(model, tokenizer, warm_args, wlen, dummy_id)
         torch.cuda.empty_cache()
 
     for L in lengths:
         print(f"\n=== max_new_tokens = {L} ===")
         if not args.skip_vanilla:
-            tv, pv, vt_times = time_vanilla(model, tokenizer, args, L)
+            tv, pv, vt_times, fine_v_med, fine_v_runs = time_vanilla(model, tokenizer, args, L)
             print(_format_timing_line(args.vanilla_label, tv, vt_times, pv))
+            print(_format_inference_breakdown(fine_v_med))
             results["vanilla_time_s"].append(tv)
             results["vanilla_time_per_run_s"].append(vt_times)
             results["vanilla_peak_tokens"].append(pv)
+            results["vanilla_breakdown_median_s"].append(timings_to_jsonable(fine_v_med))
+            results["vanilla_breakdown_per_run_s"].append([timings_to_jsonable(x) for x in fine_v_runs])
         else:
             results["vanilla_time_s"].append(None)
             results["vanilla_time_per_run_s"].append(None)
             results["vanilla_peak_tokens"].append(None)
+            results["vanilla_breakdown_median_s"].append(None)
+            results["vanilla_breakdown_per_run_s"].append(None)
 
         if not args.skip_ours:
-            to, po, ot_times = time_memcot_sim(model, tokenizer, args, L, dummy_id)
+            to, po, ot_times, fine_o_med, fine_o_runs = time_memcot_sim(model, tokenizer, args, L, dummy_id)
             print(_format_timing_line(args.ours_label, to, ot_times, po))
+            print(_format_inference_breakdown(fine_o_med))
             results["ours_time_s"].append(to)
             results["ours_time_per_run_s"].append(ot_times)
             results["ours_peak_tokens"].append(po)
+            results["ours_breakdown_median_s"].append(timings_to_jsonable(fine_o_med))
+            results["ours_breakdown_per_run_s"].append([timings_to_jsonable(x) for x in fine_o_runs])
         else:
             results["ours_time_s"].append(None)
             results["ours_time_per_run_s"].append(None)
             results["ours_peak_tokens"].append(None)
+            results["ours_breakdown_median_s"].append(None)
+            results["ours_breakdown_per_run_s"].append(None)
 
         torch.cuda.empty_cache()
 
