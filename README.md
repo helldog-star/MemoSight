@@ -1,175 +1,218 @@
+# MemoSight
 
-```
-/*
- *                                                     __----~~~~~~~~~~~------___
- *                                    .  .   ~~//====......          __--~ ~~
- *                    -.            \_|//     |||\\  ~~~~~~::::... /~
- *                 ___-==_       _-~o~  \/    |||  \\            _/~~-
- *         __---~~~.==~||\=_    -_--~/_-~|-   |\\   \\        _/~
- *     _-~~     .=~    |  \\-_    '-~7  /-   /  ||    \      /
- *   .~       .~       |   \\ -_    /  /-   /   ||      \   /
- *  /  ____  /         |     \\ ~-_/  /|- _/   .||       \ /
- *  |~~    ~~|--~~~~--_ \     ~==-/   | \~--===~~        .\
- *           '         ~-|      /|    |-~\~~       __--~~
- *                       |-~~-_/ |    |   ~\_   _-~            /\
- *                            /  \     \__   \/~                \__
- *                        _--~ _/ | .-~~____--~-/                  ~~==.
- *                       ((->/~   '.|||' -_|    ~~-/ ,              . _||
- *                                  -_     ~\      ~~---l__i__i__i--~~_/
- *                                  _-~-__   ~)  \--______________--~~
- *                                //.-~~~-~_--~- |-------~~~~~~~~
- *                                       //.-~~~--\
- *                       ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
- * 
- *                               神兽保佑            永无BUG
- */
-```
+**English** | [中文](README_zh.md)
+
+[![arXiv](https://img.shields.io/badge/arXiv-2604.14889-b31b1b.svg)](https://arxiv.org/abs/2604.14889)
+
+Official PyTorch implementation of **[MemoSight: Unifying Context Compression and Multi Token Prediction for Reasoning Acceleration](https://arxiv.org/abs/2604.14889)** ([arXiv:2604.14889](https://arxiv.org/abs/2604.14889)).
+
+**MemoSight** (Memory-Foresight-Based Reasoning) unifies **context compression** and **multi-token prediction (MTP)** for chain-of-thought reasoning: it compresses historical tokens to reduce KV-cache growth and predicts future tokens in parallel to speed up decoding, while keeping reasoning accuracy close to vanilla supervised fine-tuning (SFT).
+
+## Highlights
+
+- Shared minimalist design with special tokens and token-specific positional layouts for both compression and parallel prediction.
+- Up to **66%** lower KV-cache usage and **56%** faster inference vs. vanilla SFT, with under **3%** average accuracy drop on four reasoning benchmarks (see the [paper](https://arxiv.org/abs/2604.14889) for full results).
 
 ## Table of Contents
 
-- 🔧[Installation](#installation)
-- 🏃[Quick Start](#quick-start)
-- 🎁[Acknowledgement](#acknowledgement)
-- 🚩[Citation](#citation)
+- [Requirements](#requirements)
+- [Installation](#installation)
+- [Data Preparation](#data-preparation)
+- [Quick Start](#quick-start)
+- [Project Structure](#project-structure)
+- [Citation](#citation)
+- [Acknowledgments](#acknowledgments)
+- [License](#license)
 
+## Requirements
 
-## 🔧Installation
+- Python 3.9
+- CUDA-capable GPU(s) for training and inference
+- Python dependencies in [`requirements.txt`](requirements.txt) (PyTorch 2.5.1, Transformers 4.46.3, DeepSpeed 0.15.3, etc.)
+
+## Installation
 
 ```bash
-git clone https://github.com/helldog-star/RRcot
-cd RRcot
-conda create -n lightthinker python=3.9 -y
-conda activate lightthinker
+git clone https://github.com/helldog-star/MemoSight.git
+cd MemoSight
+
+conda create -n memosight python=3.9 -y
+conda activate memosight
 pip install -r requirements.txt
+```
+
+## Data Preparation
+
+Place training data under `data/` (e.g. `data/train/train.jsonl`). If you use the bundled archive:
+
+```bash
 cd data && unzip data.zip && cd ..
 ```
 
+## Quick Start
 
-## 🏃Quick Start
+We recommend the unified entry script [`scripts/pipeline.sh`](scripts/pipeline.sh) for training, inference, and evaluation instead of chaining commands manually.
 
-本项目推荐通过统一脚本 `scripts/pipeline.sh` 运行训练、推理、评估，避免手动拼接多段命令。
-
-脚本支持 4 个阶段：
-
-- `--stage train`：只训练
-- `--stage infer`：只推理（默认自动选择最新 checkpoint）
-- `--stage eval`：只评估
-- `--stage all`：训练 + 推理 + 评估全流程
-
-可先查看帮助：
+Show help:
 
 ```bash
 bash scripts/pipeline.sh -h
 ```
 
-### 参数约定
+### Pipeline stages
 
-必传通用参数：
+| `--stage` | Description |
+|-----------|-------------|
+| `train` | Training only |
+| `infer` | Inference only (latest checkpoint by default) |
+| `eval` | Evaluation only |
+| `all` | Train → infer → eval |
 
-- `--stage`
-- `--exp_tag`：实验名（同时作为模型 tag）
-- `--output_base_dir`：输出根目录
+### Common arguments
 
-训练常用参数：
+**General (required)**
 
-- `--use_epl`、`--lr`、`--mode`
-- `--tokenizer_path`、`--model_path`、`--train_data_path`
-- `--train_gpus`（逗号分隔，如 `0,1,2,3`）
+| Argument | Description |
+|----------|-------------|
+| `--stage` | Pipeline stage |
+| `--exp_tag` | Experiment name (also used as model tag) |
+| `--output_base_dir` | Root directory for outputs |
 
-推理常用参数：
+**Training**
 
-- `--target_gpus`（逗号分隔）
-- `--process_per_gpu`（每卡并发进程数）
-- `--datasets`（逗号分隔）
-- `--ckpt`（可选，不传时自动取最新）
+- `--use_epl`, `--lr`, `--mode`
+- `--tokenizer_path`, `--model_path`, `--train_data_path`
+- `--train_gpus`: comma-separated GPU ids, e.g. `0,1,2,3`
 
-评估常用参数：
+**Inference**
 
-- `--eval_method`（默认 `normal`）
-- `--datasets`
-- `--comp_config`
-- `--interaction`（`true/false`）
+- `--target_gpus`, `--process_per_gpu`
+- `--datasets`: comma-separated dataset names
+- `--ckpt`: optional; uses the latest checkpoint if omitted
 
-### 示例 1：仅训练
+**Evaluation**
+
+- `--eval_method` (default: `normal`)
+- `--datasets`, `--comp_config`
+- `--interaction`: `true` / `false`
+
+### Examples
+
+Replace `OUTPUT_DIR`, `TOKENIZER_PATH`, `MODEL_PATH`, and `TRAIN_DATA` with paths on your machine.
+
+**Training only**
 
 ```bash
 bash scripts/pipeline.sh \
   --stage train \
   --exp_tag vanilla_qwen \
-  --output_base_dir /mnt/lxy/RRcot/experiments \
+  --output_base_dir OUTPUT_DIR \
   --use_epl false \
   --lr 1e-5 \
   --mode normal \
   --model_type qwen \
-  --tokenizer_path /mnt/lxy/hf_models/Qwen2.5-1.5B-Instruct \
-  --model_path /mnt/lxy/hf_models/DeepSeek-R1-Distill-Qwen-1.5B \
-  --train_data_path /mnt/lxy/RRcot/data/train/train_debug.jsonl \
+  --tokenizer_path TOKENIZER_PATH \
+  --model_path MODEL_PATH \
+  --train_data_path TRAIN_DATA \
   --train_gpus 0,1,2,3
 ```
 
-### 示例 2：仅推理（自动使用最新 checkpoint）
+**Inference only**
 
 ```bash
 bash scripts/pipeline.sh \
   --stage infer \
   --exp_tag vanilla_qwen \
-  --output_base_dir /mnt/lxy/RRcot/experiments \
+  --output_base_dir OUTPUT_DIR \
   --use_epl false \
   --model_type qwen \
-  --tokenizer_path /mnt/lxy/hf_models/Qwen2.5-1.5B-Instruct \
+  --tokenizer_path TOKENIZER_PATH \
   --target_gpus 0,1,2,3 \
   --process_per_gpu 1 \
   --datasets mmlu,gsm8k,gpqa,bbh
 ```
 
-### 示例 3：全流程（train + infer + eval）
+**Full pipeline (train + infer + eval)**
 
 ```bash
 bash scripts/pipeline.sh \
   --stage all \
   --exp_tag vanilla_qwen \
-  --output_base_dir /mnt/lxy/RRcot/experiments \
+  --output_base_dir OUTPUT_DIR \
   --use_epl false \
   --lr 1e-5 \
   --mode normal \
   --model_type qwen \
-  --tokenizer_path /mnt/lxy/hf_models/Qwen2.5-1.5B-Instruct \
-  --model_path /mnt/lxy/hf_models/DeepSeek-R1-Distill-Qwen-1.5B \
-  --train_data_path /mnt/lxy/RRcot/data/train/train_debug.jsonl \
+  --tokenizer_path TOKENIZER_PATH \
+  --model_path MODEL_PATH \
+  --train_data_path TRAIN_DATA \
   --train_gpus 0,1,2,3 \
   --target_gpus 0,1,2,3 \
   --process_per_gpu 1 \
   --datasets mmlu,gsm8k,gpqa,bbh
 ```
 
-### 输出目录说明
+### Output layout
 
-运行后所有产物会放在：
+Artifacts are written under:
 
-`<output_base_dir>/<exp_tag>/`
+```text
+<output_base_dir>/<exp_tag>/
+```
 
-常见内容包括：
+| Path | Contents |
+|------|----------|
+| `train/` | Training logs and checkpoints |
+| `inference/` | Inference outputs and worker logs |
+| `eval/` | Evaluation logs and metrics |
+| `run_*.txt` | Snapshot of run arguments |
+| `pipeline_*.sh` | Snapshot of the invoked pipeline script |
 
-- `train/`：训练日志和 checkpoint
-- `inference/`：推理输出和子进程日志
-- `eval/`：评估日志与结果
-- `run_*.txt`：本次运行参数快照
-- `pipeline_*.sh`：运行时脚本快照（便于复现）
+Symlinks for the latest run: `run_latest.txt`, `pipeline_latest.sh`, and stage-specific `*_latest.log`.
 
-并且会维护软链接：
+### FAQ
 
-- `run_latest.txt`
-- `pipeline_latest.sh`
-- 各阶段 `*_latest.log`
+1. **`--stage infer` cannot find a checkpoint**  
+   Run training first, or pass an explicit path via `--ckpt`.
 
-### 常见问题
+2. **Out-of-memory (OOM)**  
+   Lower `--micro_batch_size` first, then `--max_length` and `--process_per_gpu`.
 
-1. `--stage infer` 报找不到 checkpoint  
-请先执行训练，或手动指定 `--ckpt`。
+3. **Invalid arguments**  
+   Run `bash scripts/pipeline.sh -h` to verify names and values.
 
-2. 显存不足（OOM）  
-优先降低 `--micro_batch_size`，其次减小 `--max_length`，并适当调低 `--process_per_gpu`。
+## Project Structure
 
-3. 参数拼写错误导致脚本退出  
-可先执行 `bash scripts/pipeline.sh -h`，确认参数名与取值。
+```text
+MemoSight/
+├── LightThinker/           # Core model, training, and inference code
+├── configs/LightThinker/   # Model and training configs (JSON)
+├── scripts/                # pipeline.sh and related runners
+├── evaluation/             # Evaluation scripts
+├── data/                   # Training and benchmark data
+└── requirements.txt
+```
 
+For a traditional MTP baseline, use [`scripts/pipeline_traditional_MTP.sh`](scripts/pipeline_traditional_MTP.sh).
+
+## Citation
+
+If you find this work useful, please cite:
+
+```bibtex
+@article{liu2026memosight,
+  title   = {MemoSight: Unifying Context Compression and Multi Token Prediction for Reasoning Acceleration},
+  author  = {Liu, Xinyu and Liu, Xin and Jin, Bo and Zhao, Runsong and Huang, Pengcheng and Ruan, Junhao and Li, Bei and Xiao, Chunyang and Wang, Chenglong and Xiao, Tong and Zhu, Jingbo},
+  journal = {arXiv preprint arXiv:2604.14889},
+  year    = {2026},
+  url     = {https://arxiv.org/abs/2604.14889}
+}
+```
+
+## Acknowledgments
+
+This repository extends [LightThinker](https://github.com/ZJUNLP/LightThinker) and related open-source work. We thank the original authors and contributors.
+
+## License
+
+This project is licensed under the [MIT License](LICENSE).
