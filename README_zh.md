@@ -211,6 +211,35 @@ DRAFT_LENS="1 2 3" DATASETS="gsm8k" GPU=0 WITH_BASELINE=1 \
 
 > **前提：** 草稿长度 `γ` 通过 `--mtp_draft_len` 配置。接受率仅在不超过 checkpoint 训练时的 `max_offset` 范围内有意义（训练时 register offset 在 `[0, max_offset]` 中采样）。
 
+#### 完整示例：`max_offset=2` 训练的 checkpoint
+
+假设主实验用如下 `mtp` 块训练（register offset 在 `[0, 2]` 中采样）：
+
+```json
+"mtp": { "mtp_loss_weight": 0.3, "lm_loss_weight": 0.7, "max_offset": 2 }
+```
+
+则草稿长度**最多扫到 2**（`DRAFT_LENS` 设到 3+ 会用到未训练的 register 位置，那些位置的接受率是假信号）：
+
+```bash
+cd /path/to/MemoSight
+
+MODEL_PATH=/path/to/你的训练输出/checkpoint-xxxx \
+TOKENIZER_PATH=/path/to/Qwen2.5-0.5B-Instruct \
+COMPRESS_CONFIG=./configs/LightThinker/qwen/adaptive_mtp_v1.json \
+MODEL_TYPE=qwen \
+DRAFT_LENS="1 2" \
+DATASETS="gsm8k" \
+GPU=0 \
+WITH_BASELINE=1 \
+RESULT_ROOT=mtp_accept_results/max_offset2 \
+bash scripts/run_mtp_acceptance.sh
+```
+
+单次 `dl2` 运行的结果文件里**已同时含 pos1 / pos2 / pos3 三个位置**的逐位置接受率（`draft_len = γ + 1 = 3`），无需为每个位置单独跑。`dl1` 用于对比不同草稿长度下的 τ 与 token/前向；`WITH_BASELINE=1` 给出真实吞吐加速比。产物在 `mtp_accept_results/max_offset2/{summary.csv,acceptance.png,summary.json}`。
+
+> **`COMPRESS_CONFIG` 里的 `max_offset` 需要与 `DRAFT_LENS` 对齐吗？——不需要。** 只要传了 `--mtp_draft_len`（本脚本每次都传），推理时的草稿长度完全由它决定，config 里的 `max_offset` 会被覆盖、不参与计算（`inference.py:1650`）；config 的 `mtp` 块只需**存在**即可触发投机分支。真正的硬约束是 `DRAFT_LENS ≤ 训练时的 max_offset`（该值烘进了权重）。仍建议把 config 的 `max_offset` 保持成训练值，作为该 ckpt 的身份标签，并给 `inference_batched.py` 的兜底路径用。
+
 ### 手动分析
 
 直接聚合已有推理输出（任何以 `--spec_decode true` 产生的结果）：

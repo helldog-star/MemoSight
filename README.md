@@ -205,6 +205,35 @@ DRAFT_LENS="1 2 3" DATASETS="gsm8k" GPU=0 WITH_BASELINE=1 \
 
 > **Requirement:** the draft length `γ` is configurable via `--mtp_draft_len`. Acceptance is only meaningful up to the `max_offset` the checkpoint was trained with (register offset was sampled in `[0, max_offset]`).
 
+#### Worked example: a checkpoint trained with `max_offset=2`
+
+Suppose the main experiment was trained with this `mtp` block (register offset sampled in `[0, 2]`):
+
+```json
+"mtp": { "mtp_loss_weight": 0.3, "lm_loss_weight": 0.7, "max_offset": 2 }
+```
+
+Then sweep the draft length **up to 2 only** (`DRAFT_LENS` of 3+ hits register positions the model never trained on — acceptance there is a fake signal):
+
+```bash
+cd /path/to/MemoSight
+
+MODEL_PATH=/path/to/your/train_output/checkpoint-xxxx \
+TOKENIZER_PATH=/path/to/Qwen2.5-0.5B-Instruct \
+COMPRESS_CONFIG=./configs/LightThinker/qwen/adaptive_mtp_v1.json \
+MODEL_TYPE=qwen \
+DRAFT_LENS="1 2" \
+DATASETS="gsm8k" \
+GPU=0 \
+WITH_BASELINE=1 \
+RESULT_ROOT=mtp_accept_results/max_offset2 \
+bash scripts/run_mtp_acceptance.sh
+```
+
+The single `dl2` run already contains the per-position acceptance for **pos1 / pos2 / pos3** (`draft_len = γ + 1 = 3`) — no need to run each position separately. `dl1` is there to compare τ and tokens/forward across draft lengths, and `WITH_BASELINE=1` gives a real throughput speedup. Outputs land in `mtp_accept_results/max_offset2/{summary.csv,acceptance.png,summary.json}`.
+
+> **Does `max_offset` in `COMPRESS_CONFIG` need to match `DRAFT_LENS`? — No.** As long as `--mtp_draft_len` is passed (this script always does), it fully determines the inference draft length; the config's `max_offset` is overwritten and unused (`inference.py:1650`). The config's `mtp` block only needs to *exist* to trigger the speculative path. The real hard constraint is `DRAFT_LENS ≤ the max_offset the checkpoint was trained with` (that value is baked into the weights). Still, keep the config's `max_offset` equal to the training value as a label for the checkpoint and for `inference_batched.py`'s fallback path.
+
 ### Analyzing manually
 
 To aggregate existing inference outputs directly (any run produced with `--spec_decode true`):
