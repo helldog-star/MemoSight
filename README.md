@@ -19,6 +19,7 @@ Official PyTorch implementation of **[MemoSight: Unifying Context Compression an
 - [Installation](#installation)
 - [Data Preparation](#data-preparation)
 - [Quick Start](#quick-start)
+- [MTP Acceptance-Rate Analysis](#mtp-acceptance-rate-analysis)
 - [Project Structure](#project-structure)
 - [Citation](#citation)
 - [Acknowledgments](#acknowledgments)
@@ -181,13 +182,74 @@ Symlinks for the latest run: `run_latest.txt`, `pipeline_latest.sh`, and stage-s
 3. **Invalid arguments**  
    Run `bash scripts/pipeline.sh -h` to verify names and values.
 
+## MTP Acceptance-Rate Analysis
+
+MemoSight decodes with **self-speculative decoding**: at each step the model drafts `γ + 1` tokens in one forward (the mandatory next token plus `γ` speculative *register* tokens), then a single *verify* forward confirms the longest matching prefix. The **acceptance rate** — how many drafted tokens survive verification — is what turns the extra register compute into real speedup.
+
+### Running the sweep
+
+Inference collects per-sample acceptance statistics whenever it is run with `--spec_decode true`. The convenience runner [`scripts/run_mtp_acceptance.sh`](scripts/run_mtp_acceptance.sh) sweeps the draft length `γ` over the datasets and then aggregates the results:
+
+```bash
+DRAFT_LENS="1 2 3" DATASETS="gsm8k" GPU=0 WITH_BASELINE=1 \
+  bash scripts/run_mtp_acceptance.sh
+```
+
+| Env var | Default | Meaning |
+|---------|---------|---------|
+| `DRAFT_LENS` | `1 2 3` | Speculative register tokens per step (`--mtp_draft_len`). Sweeping beyond the trained `max_offset` shows where acceptance collapses. |
+| `DATASETS` | `gsm8k` | Space-separated: `gsm8k mmlu bbh gpqa` |
+| `WITH_BASELINE` | `0` | Set `1` to also run a non-speculative pass for a wall-clock reference |
+| `GPU` | `0` | CUDA device id |
+| `MODEL_PATH` / `TOKENIZER_PATH` / `COMPRESS_CONFIG` | see script header | Must use an **MTP-trained** config with an `mtp` block, e.g. [`configs/LightThinker/qwen/adaptive_mtp_v1.json`](configs/LightThinker/qwen/adaptive_mtp_v1.json); the speculative path is skipped otherwise. |
+
+> **Requirement:** the draft length `γ` is configurable via `--mtp_draft_len`. Acceptance is only meaningful up to the `max_offset` the checkpoint was trained with (register offset was sampled in `[0, max_offset]`).
+
+### Analyzing manually
+
+To aggregate existing inference outputs directly (any run produced with `--spec_decode true`):
+
+```bash
+# single run
+python scripts/analyze_mtp_acceptance.py mtp_accept_results/dl2/**/*.jsonl
+
+# compare several draft lengths, emit table + csv + plot
+python scripts/analyze_mtp_acceptance.py \
+  --group dl1=mtp_accept_results/dl1/**/*.jsonl \
+  --group dl2=mtp_accept_results/dl2/**/*.jsonl \
+  --group dl3=mtp_accept_results/dl3/**/*.jsonl \
+  --csv mtp_accept_results/summary.csv \
+  --plot mtp_accept_results/acceptance.png \
+  --json mtp_accept_results/summary.json
+```
+
+### Reported metrics
+
+| Metric | Definition | Reads as |
+|--------|------------|----------|
+| **mean accept length τ** | committed tokens / decode steps | tokens emitted per step (upper bound on speedup) |
+| **overall acceptance α** | accepted speculative tokens / proposed speculative tokens | fraction of MTP drafts kept, `∈ [0, 1]` |
+| **per-position αₖ** | acceptance of the k-th register position (unconditional and conditional-on-reached) | how prediction quality decays with distance |
+| **tokens / forward** | committed tokens / forward passes | compute-bound speedup proxy vs. `1.0` for plain AR |
+| **tokens / s** | output length / inference time | measured wall-clock throughput |
+| **accept histogram** | frequency of committing 1, 2, … tokens per step | shape of the acceptance distribution |
+
+Accuracy is reported alongside so speed gains are never read in isolation.
+
+### Artifacts
+
+- Each inference record (`<output_tag>/<dataset>/<index>_<dataset>.jsonl`) gains an `mtp_stats` block plus `mtp_draft_len`, carrying raw counters for exact, loss-free re-aggregation across samples and files.
+- `summary.csv` — one row per group: `draft_len, accuracy, mean_accept_len, overall_accept_rate, tokens_per_forward, tokens_per_sec, …`
+- `summary.json` — full derived metrics (including per-position αₖ and the accept histogram).
+- `acceptance.png` — two panels: per-position acceptance curves, and mean accept length / tokens-per-forward vs. draft length.
+
 ## Project Structure
 
 ```text
 MemoSight/
 ├── LightThinker/           # Core model, training, and inference code
 ├── configs/LightThinker/   # Model and training configs (JSON)
-├── scripts/                # pipeline.sh and related runners
+├── scripts/                # pipeline.sh, MTP acceptance sweep & analysis, runners
 ├── evaluation/             # Evaluation scripts
 ├── data/                   # Training and benchmark data
 └── requirements.txt

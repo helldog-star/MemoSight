@@ -19,6 +19,7 @@
 - [安装](#安装)
 - [数据准备](#数据准备)
 - [快速开始](#快速开始)
+- [MTP 接受率分析](#mtp-接受率分析)
 - [项目结构](#项目结构)
 - [引用](#引用)
 - [致谢](#致谢)
@@ -185,13 +186,77 @@ bash scripts/pipeline.sh \
 3. **参数错误**
   执行 `bash scripts/pipeline.sh -h` 核对参数名与取值。
 
+## MTP 接受率分析
+
+MemoSight 采用**自推测解码（self-speculative decoding）**：每个解码步用一次前向草拟 `γ + 1` 个 token（1 个必然接受的下一 token，加 `γ` 个投机性的 *register* token），随后用一次 *verify* 前向确认最长匹配前缀。**接受率**——即草稿 token 通过验证的比例——决定了额外 register 计算能否真正转化为加速。
+
+### 运行扫描
+
+只要以 `--spec_decode true` 运行推理，就会逐样本收集接受率统计。便捷脚本 `[scripts/run_mtp_acceptance.sh](scripts/run_mtp_acceptance.sh)` 会在数据集上扫描草稿长度 `γ` 并自动聚合：
+
+```bash
+DRAFT_LENS="1 2 3" DATASETS="gsm8k" GPU=0 WITH_BASELINE=1 \
+  bash scripts/run_mtp_acceptance.sh
+```
+
+
+| 环境变量 | 默认值 | 含义 |
+| --- | --- | --- |
+| `DRAFT_LENS` | `1 2 3` | 每步投机 register token 数（`--mtp_draft_len`）。扫到超过训练 `max_offset` 可观察接受率何时崩塌。 |
+| `DATASETS` | `gsm8k` | 空格分隔：`gsm8k mmlu bbh gpqa` |
+| `WITH_BASELINE` | `0` | 设为 `1` 额外跑一次非投机解码作为墙钟对照 |
+| `GPU` | `0` | CUDA 设备编号 |
+| `MODEL_PATH` / `TOKENIZER_PATH` / `COMPRESS_CONFIG` | 见脚本头部 | 必须使用**含 `mtp` 块的 MTP 训练配置**，如 `[configs/LightThinker/qwen/adaptive_mtp_v1.json](configs/LightThinker/qwen/adaptive_mtp_v1.json)`；否则不会走投机分支。 |
+
+
+> **前提：** 草稿长度 `γ` 通过 `--mtp_draft_len` 配置。接受率仅在不超过 checkpoint 训练时的 `max_offset` 范围内有意义（训练时 register offset 在 `[0, max_offset]` 中采样）。
+
+### 手动分析
+
+直接聚合已有推理输出（任何以 `--spec_decode true` 产生的结果）：
+
+```bash
+# 单次运行
+python scripts/analyze_mtp_acceptance.py mtp_accept_results/dl2/**/*.jsonl
+
+# 对比多个草稿长度，输出表格 + csv + 图
+python scripts/analyze_mtp_acceptance.py \
+  --group dl1=mtp_accept_results/dl1/**/*.jsonl \
+  --group dl2=mtp_accept_results/dl2/**/*.jsonl \
+  --group dl3=mtp_accept_results/dl3/**/*.jsonl \
+  --csv mtp_accept_results/summary.csv \
+  --plot mtp_accept_results/acceptance.png \
+  --json mtp_accept_results/summary.json
+```
+
+### 报告指标
+
+
+| 指标 | 定义 | 解读 |
+| --- | --- | --- |
+| **平均接受长度 τ** | 已提交 token 数 / 解码步数 | 每步等价产出的 token 数（加速比上界） |
+| **整体接受率 α** | 接受的投机 token / 提议的投机 token | MTP 草稿被采纳的比例，`∈ [0, 1]` |
+| **逐位置接受率 αₖ** | 第 k 个 register 位置的接受率（无条件 + 条件于"被触及"两种口径） | 预测质量随距离的衰减 |
+| **token / 前向** | 已提交 token / 前向次数 | 计算受限下的加速代理（普通 AR 为 `1.0`） |
+| **token / 秒** | 输出长度 / 推理耗时 | 实测墙钟吞吐 |
+| **接受直方图** | 每步提交 1、2、… 个 token 的频率 | 接受分布的形状 |
+
+准确率一并报告，避免脱离精度孤立地看加速。
+
+### 产物
+
+- 每条推理记录（`<output_tag>/<dataset>/<index>_<dataset>.jsonl`）新增 `mtp_stats` 块及 `mtp_draft_len`，携带原始计数，可跨样本、跨文件**无损**再聚合。
+- `summary.csv` —— 每组一行：`draft_len, accuracy, mean_accept_len, overall_accept_rate, tokens_per_forward, tokens_per_sec …`
+- `summary.json` —— 完整派生指标（含逐位置 αₖ 与接受直方图）。
+- `acceptance.png` —— 两幅子图：逐位置接受率曲线，以及平均接受长度 / token-per-forward 随草稿长度的变化。
+
 ## 项目结构
 
 ```text
 MemoSight/
 ├── LightThinker/           # 模型、训练、推理核心代码
 ├── configs/LightThinker/   # 模型与训练配置（JSON）
-├── scripts/                # pipeline.sh 等运行脚本
+├── scripts/                # pipeline.sh、MTP 接受率扫描与分析等运行脚本
 ├── evaluation/             # 评估脚本
 ├── data/                   # 训练/评测数据
 └── requirements.txt

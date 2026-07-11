@@ -32,6 +32,98 @@ INDICATOR_LIST:List[str] = [
     _ABANDONED
 ]
 
+
+class MTPStats:
+    """Per-sample collector for MTP self-speculative-decoding acceptance stats.
+
+    Terminology (per decode step):
+      * draft_len = gamma + 1 tokens are proposed: 1 mandatory "anchor" token
+        (draft_tokens[0], always committed) + gamma speculative register tokens.
+      * a *verify* forward confirms the speculative tokens; the longest matching
+        prefix is accepted.
+      * raw_accepted_len = accepted_len BEFORE control-token (split/eos) trimming
+        -> reflects the intrinsic MTP predictor quality (used for alpha / alpha_k).
+      * committed = accepted_count AFTER trimming -> tokens actually emitted
+        (used for mean-accept-length / tokens-per-forward speedup proxies).
+    """
+
+    def __init__(self):
+        self.decode_steps = 0        # number of outer-loop iterations
+        self.committed_tokens = 0    # sum of accepted_count (tokens actually emitted)
+        self.forward_passes = 0      # main forward + verify forward
+        self.verify_steps = 0        # steps where a verify forward actually ran
+        self.control_steps = 0       # steps whose first draft token was split/eos
+        self.spec_proposed = 0       # sum of gamma over verify steps
+        self.spec_accepted = 0       # sum of matched speculative tokens (raw)
+        # per speculative position k in [0, gamma): counts over verify steps
+        self.pos_reached = {}        # position was actually compared
+        self.pos_accepted = {}       # position matched
+        # histogram of committed accepted_count per step
+        self.accept_hist = {}
+
+    def record_step(self, forward_passes, committed):
+        self.decode_steps += 1
+        self.forward_passes += forward_passes
+        self.committed_tokens += committed
+        self.accept_hist[committed] = self.accept_hist.get(committed, 0) + 1
+
+    def record_control_step(self):
+        self.control_steps += 1
+
+    def record_verify(self, gamma, raw_accepted_len):
+        """gamma = number of speculative (register) tokens proposed this step.
+        raw_accepted_len = accepted_len (incl. mandatory first token) BEFORE
+        control trimming, range [1, gamma+1]."""
+        self.verify_steps += 1
+        self.spec_proposed += gamma
+        matched = raw_accepted_len - 1          # matched speculative positions
+        self.spec_accepted += matched
+        for k in range(gamma):
+            # position k is "reached" (compared) unless an earlier position broke;
+            # the loop breaks right after the first mismatch, so positions
+            # 0..matched are all reached (matched ones + the single mismatch),
+            # positions > matched are never compared.
+            reached = k <= matched
+            if reached:
+                self.pos_reached[k] = self.pos_reached.get(k, 0) + 1
+                if k < matched:
+                    self.pos_accepted[k] = self.pos_accepted.get(k, 0) + 1
+                else:
+                    self.pos_accepted.setdefault(k, self.pos_accepted.get(k, 0))
+
+    def summary(self):
+        steps = max(self.decode_steps, 1)
+        vsteps = max(self.verify_steps, 1)
+        fwd = max(self.forward_passes, 1)
+        gammas = sorted(self.pos_reached.keys())
+        per_pos_uncond = {
+            k: self.pos_accepted.get(k, 0) / vsteps for k in gammas
+        }
+        per_pos_cond = {
+            k: (self.pos_accepted.get(k, 0) / self.pos_reached[k])
+            for k in gammas if self.pos_reached[k] > 0
+        }
+        return dict(
+            decode_steps=self.decode_steps,
+            committed_tokens=self.committed_tokens,
+            forward_passes=self.forward_passes,
+            verify_steps=self.verify_steps,
+            control_steps=self.control_steps,
+            spec_proposed=self.spec_proposed,
+            spec_accepted=self.spec_accepted,
+            mean_accept_len=self.committed_tokens / steps,
+            overall_accept_rate=(self.spec_accepted / self.spec_proposed
+                                 if self.spec_proposed > 0 else 0.0),
+            tokens_per_forward=self.committed_tokens / fwd,
+            per_position_accept_uncond=per_pos_uncond,
+            per_position_accept_cond=per_pos_cond,
+            # raw counts for exact (loss-free) cross-sample re-aggregation
+            pos_reached=dict(self.pos_reached),
+            pos_accepted=dict(self.pos_accepted),
+            accept_hist=self.accept_hist,
+        )
+
+
 class DebugUtils:
 
     @classmethod
@@ -1528,7 +1620,9 @@ def _sentence_level_mtp_register_generate(
     last_hidden_state: torch.Tensor,
     update_attention_method:str="global",
     use_EPL:bool=False,
-    repetition_penalty:float=1.0
+    repetition_penalty:float=1.0,
+    mtp_draft_len:int=None,
+    mtp_stats:"MTPStats"=None,
 ) -> Tuple[str,str]:
     assert update_attention_method in ["global", "local"]
 
@@ -1550,7 +1644,14 @@ def _sentence_level_mtp_register_generate(
     else:
         register_token_count = 0
 
-    register_token_count = 2
+    # draft length (# speculative register tokens) is configurable so the
+    # acceptance-rate experiment can sweep it; falls back to the previous
+    # hardcoded value of 2 when not specified.
+    if mtp_draft_len is not None:
+        register_token_count = int(mtp_draft_len)
+    else:
+        register_token_count = 2
+    register_token_count = max(0, register_token_count)
 
     # 在首次进入 split 分支前也需要一个可用 position_ids 基准
     position_ids = token_utils.get_position_ids()[:, -1:]
@@ -1561,6 +1662,7 @@ def _sentence_level_mtp_register_generate(
 
     while predicted_token_id != eos_token_id and new_token_counters < max_new_tokens:
             IS_COMP_MODE:bool = False
+            step_forward_passes = 0  # main forward + (optional) verify forward
             token_utils.show_output_input_ids.append(predicted_token_id)
             step_input_ids = [predicted_token_id]
 
@@ -1704,6 +1806,7 @@ def _sentence_level_mtp_register_generate(
                 return_dict=True,
                 position_ids=position_ids,
             )
+            step_forward_passes += 1
 
             if IS_COMP_MODE:
                 # compression 分支先删除被压缩的原文，再删除临时 register
@@ -1750,6 +1853,8 @@ def _sentence_level_mtp_register_generate(
                     pending_split_pos = tail_raw - use_compression_all_count + 1 if use_EPL else tail_raw + 1
                 predicted_token_id = draft_tokens[0]
                 accepted_count = 1
+                if mtp_stats is not None:
+                    mtp_stats.record_control_step()
             # 无 register 时退化为普通单步预测
             elif len(draft_tokens) == 1:
                 predicted_token_id = draft_tokens[0]
@@ -1790,6 +1895,7 @@ def _sentence_level_mtp_register_generate(
                         return_dict=True,
                         position_ids=verify_position_ids,
                     )
+                    step_forward_passes += 1
 
                     verify_preds: List[int] = []
                     for pos in range(verify_new_length):
@@ -1813,6 +1919,13 @@ def _sentence_level_mtp_register_generate(
                             accepted_len += 1
                         else:
                             break
+
+                    # 记录内在接受率（control 裁剪之前的原始匹配长度）
+                    if mtp_stats is not None:
+                        mtp_stats.record_verify(
+                            gamma=verify_new_length - 1,
+                            raw_accepted_len=accepted_len,
+                        )
 
                     # 移除未通过验证的尾部 token
                     if accepted_len < verify_new_length:
@@ -1856,6 +1969,12 @@ def _sentence_level_mtp_register_generate(
                         # 下一轮从“最后一个已接受 token 的下一 token 预测”继续
                         predicted_token_id = verify_preds[accepted_len - 1]
 
+            if mtp_stats is not None:
+                mtp_stats.record_step(
+                    forward_passes=step_forward_passes,
+                    committed=accepted_count,
+                )
+
             new_token_counters += accepted_count
 
     token_utils.show_output_input_ids.append(predicted_token_id)
@@ -1885,6 +2004,8 @@ def generate(
     use_EPL:bool=False,
     repetition_penalty:float=1.0,
     spec_decode:bool=False,
+    mtp_draft_len:int=None,
+    mtp_stats:"MTPStats"=None,
 ) -> Tuple[str,str]:
 
     assert update_attention_method in ['global', 'local'], update_attention_method
@@ -1943,7 +2064,9 @@ def generate(
                 last_hidden_state=last_hidden_state,
                 update_attention_method=update_attention_method,
                 use_EPL=use_EPL,
-                repetition_penalty=repetition_penalty
+                repetition_penalty=repetition_penalty,
+                mtp_draft_len=mtp_draft_len,
+                mtp_stats=mtp_stats,
             )
         else:
             prompt, output = _sentence_level_generate(
@@ -2001,6 +2124,9 @@ def get_parser():
     parser.add_argument('--index', type=int)        
     parser.add_argument('--use_EPL', type=str2bool, default=False)
     parser.add_argument('--spec_decode', type=str2bool, default=False)
+    # number of speculative register (draft) tokens per step; None -> falls back
+    # to the previous hardcoded value of 2 inside the mtp generate loop.
+    parser.add_argument('--mtp_draft_len', type=int, default=None)
     parser.add_argument(
         '--datasets',
         type=str,
@@ -2040,13 +2166,18 @@ def get_model_and_tokenizer(
     if len(special_token_list) > 0:
         tokenizer.add_special_token(special_token_list)
 
+    # NOTE: force sdpa. The compression engine (single-seq AND batched) feeds hand-built
+    # 4D additive attention masks; flash_attention_2 rejects 4D masks (model_qwen.py:1004),
+    # so sdpa/eager is required for correctness.
     if args.model_type.lower() == 'qwen':
         model = Qwen2ForCausalLM.from_pretrained(
-            model_path, torch_dtype=torch.bfloat16, device_map="auto"
+            model_path, torch_dtype=torch.bfloat16, device_map="auto",
+            attn_implementation="sdpa",
         )
     elif args.model_type.lower() == 'llama':
         model = LlamaForCausalLM.from_pretrained(
-            model_path, torch_dtype=torch.bfloat16, device_map="auto"
+            model_path, torch_dtype=torch.bfloat16, device_map="auto",
+            attn_implementation="sdpa",
         )
 
     comp_config.convert2id(tokenizer)
@@ -2080,6 +2211,7 @@ def eval_dataset(
     index:int=None,
     use_EPL:bool=False,
     spec_decode:bool=False,
+    mtp_draft_len:int=None,
 ):
 
     if split_size != None and index != None:
@@ -2165,6 +2297,7 @@ def eval_dataset(
             system_prompt:str = reader.get_system_prompt()
             system_prompt_list:List[str] = reader.get_system_prompt_list()
 
+            sample_stats = MTPStats() if spec_decode else None
             start_time = time.time()
             prompt, output = generate(
                 question=question,
@@ -2187,6 +2320,8 @@ def eval_dataset(
                 use_EPL=use_EPL,
                 repetition_penalty=repetition_penalty,
                 spec_decode=spec_decode,
+                mtp_draft_len=mtp_draft_len,
+                mtp_stats=sample_stats,
             )
             end_time = time.time()
             input_len:int = len(token_utils.show_prompt_input_ids)
@@ -2198,7 +2333,7 @@ def eval_dataset(
             if acc_state == True:
                 acc += 1
                 
-            writer.write(dict(
+            record = dict(
                 idx=i,
                 model_answer=model_answer,
                 gt_answer=gt_answer,
@@ -2210,7 +2345,13 @@ def eval_dataset(
                 infer_time=end_time-start_time,
                 comp_pattern=comp_pattern,
                 max_token=token_utils.max_token
-            ))
+            )
+            if sample_stats is not None:
+                record["mtp_draft_len"] = (
+                    int(mtp_draft_len) if mtp_draft_len is not None else 2
+                )
+                record["mtp_stats"] = sample_stats.summary()
+            writer.write(record)
             pbar.set_description(f"model:`{model_answer}`; gt:`{gt_answer}`; correct:{acc_state}; acc: {acc}/{total}={round(acc/total, 5)}; input: {input_len}; output: {output_len}; `{comp_pattern}`; max_token: {token_utils.max_token}")
             token_utils.reset()
             attn_utils.reset()
@@ -2286,7 +2427,8 @@ def main():
             split_size=args.split_size,
             index=args.index,
             use_EPL=args.use_EPL,
-            spec_decode=args.spec_decode
+            spec_decode=args.spec_decode,
+            mtp_draft_len=args.mtp_draft_len,
         )
 
 if __name__ == '__main__':

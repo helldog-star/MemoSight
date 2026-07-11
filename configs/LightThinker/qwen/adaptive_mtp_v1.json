@@ -28,6 +28,6 @@
     "mtp": {
         "mtp_loss_weight": 0.3,
         "lm_loss_weight": 0.7,
-        "max_offset": 3
+        "max_offset": 2
     }
 }
