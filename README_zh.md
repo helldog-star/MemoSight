@@ -13,6 +13,8 @@
 - 压缩与并行预测共用基于特殊 token 与 token 专属位置编码的极简设计。
 - 相较 vanilla SFT，KV cache 最多降低 **66%**、推理加速 **56%**，在四个推理基准上平均精度下降不足 **3%**（详见[论文](https://arxiv.org/abs/2604.14889)）。
 
+
+
 ## 目录
 
 - [环境要求](#环境要求)
@@ -20,16 +22,21 @@
 - [数据准备](#数据准备)
 - [快速开始](#快速开始)
 - [MTP 接受率分析](#mtp-接受率分析)
+- [运行时分解（Runtime Breakdown）](#运行时分解runtime-breakdown)
 - [项目结构](#项目结构)
 - [引用](#引用)
 - [致谢](#致谢)
 - [许可协议](#许可协议)
+
+
 
 ## 环境要求
 
 - Python 3.9
 - 训练与推理需支持 CUDA 的 GPU
 - Python 依赖见 `[requirements.txt](requirements.txt)`（PyTorch 2.5.1、Transformers 4.46.3、DeepSpeed 0.15.3 等）
+
+
 
 ## 安装
 
@@ -42,6 +49,8 @@ conda activate memosight
 pip install -r requirements.txt
 ```
 
+
+
 ## 数据准备
 
 将训练数据放在 `data/` 下（例如 `data/train/train.jsonl`）。若使用仓库附带压缩包：
@@ -49,6 +58,8 @@ pip install -r requirements.txt
 ```bash
 cd data && unzip data.zip && cd ..
 ```
+
+
 
 ## 快速开始
 
@@ -60,6 +71,8 @@ cd data && unzip data.zip && cd ..
 bash scripts/pipeline.sh -h
 ```
 
+
+
 ### 流水线阶段
 
 
@@ -69,6 +82,8 @@ bash scripts/pipeline.sh -h
 | `infer`   | 仅推理（默认使用最新 checkpoint） |
 | `eval`    | 仅评估                    |
 | `all`     | 训练 → 推理 → 评估           |
+
+
 
 
 ### 常用参数
@@ -100,6 +115,8 @@ bash scripts/pipeline.sh -h
 - `--eval_method`（默认 `normal`）
 - `--datasets`、`--comp_config`
 - `--interaction`：`true` / `false`
+
+
 
 ### 示例
 
@@ -157,6 +174,8 @@ bash scripts/pipeline.sh \
   --datasets mmlu,gsm8k,gpqa,bbh
 ```
 
+
+
 ### 输出目录
 
 运行产物位于：
@@ -186,59 +205,75 @@ bash scripts/pipeline.sh \
 3. **参数错误**
   执行 `bash scripts/pipeline.sh -h` 核对参数名与取值。
 
+
+
 ## MTP 接受率分析
 
 MemoSight 采用**自推测解码（self-speculative decoding）**：每个解码步用一次前向草拟 `γ + 1` 个 token（1 个必然接受的下一 token，加 `γ` 个投机性的 *register* token），随后用一次 *verify* 前向确认最长匹配前缀。**接受率**——即草稿 token 通过验证的比例——决定了额外 register 计算能否真正转化为加速。
 
-### 运行扫描
+### 运行扫描（一键）
 
-只要以 `--spec_decode true` 运行推理，就会逐样本收集接受率统计。便捷脚本 `[scripts/run_mtp_acceptance.sh](scripts/run_mtp_acceptance.sh)` 会在数据集上扫描草稿长度 `γ` 并自动聚合：
+便捷脚本 `[scripts/run_mtp_acceptance.sh](scripts/run_mtp_acceptance.sh)` 把「扫描草稿长度 `γ` → 各数据集推理 → 聚合」串成一条命令。打开脚本，只改顶部 **CONFIG** 块的 5 行，然后直接运行：
 
 ```bash
-DRAFT_LENS="1 2 3" DATASETS="gsm8k" GPU=0 WITH_BASELINE=1 \
+# scripts/run_mtp_acceptance.sh 顶部
+CKPT_PATH="/mnt/dolphinfs/ssd_pool/docker/user/hadoop-nlp-sh02/hadoop-aipnlp/FMG/liuxinyu67/mem-co-t-MemCoT/experiments/memcot_c5_d2_qwen/train/checkpoint-1305"   # MTP 训练的 checkpoint 目录
+TOKENIZER_PATH="/mnt/dolphinfs/ssd_pool/docker/user/hadoop-nlp-sh02/hadoop-aipnlp/FMG/liuxinyu67/models/Qwen2.5-0.5B-Instruct"    # tokenizer 目录
+COMPRESS_CONFIG="./configs/LightThinker/qwen/adaptive_mtp_v1.json"  # 含 `mtp` 块的配置
+DRAFT_LENS="1 2"      # 每步投机 register token 数;请自行保证 <= 训练 max_offset(脚本按原样使用)
+DATASETS="gsm8k"      # 空格分隔:gsm8k mmlu bbh gpqa
+GPU=0 
+bash scripts/run_mtp_acceptance.sh
+```
+
+```bash
+# scripts/run_mtp_acceptance.sh 顶部
+CKPT_PATH="/mnt/dolphinfs/ssd_pool/docker/user/hadoop-nlp-sh02/hadoop-aipnlp/FMG/liuxinyu67/mem-co-t-MemCoT/experiments/memcot_c6_d4_qwen/train/checkpoint-1305"   # MTP 训练的 checkpoint 目录
+TOKENIZER_PATH="/mnt/dolphinfs/ssd_pool/docker/user/hadoop-nlp-sh02/hadoop-aipnlp/FMG/liuxinyu67/models/Qwen2.5-0.5B-Instruct"    # tokenizer 目录
+COMPRESS_CONFIG="./configs/LightThinker/qwen/adaptive_mtp_v1.json"  # 含 `mtp` 块的配置
+DRAFT_LENS="1 2 3 4"      # 每步投机 register token 数;请自行保证 <= 训练 max_offset(脚本按原样使用)
+DATASETS="gsm8k"      # 空格分隔:gsm8k mmlu bbh gpqa
+GPU=0
+bash scripts/run_mtp_acceptance.sh
+```
+
+```bash
+CKPT_PATH=/mnt/dolphinfs/ssd_pool/docker/user/hadoop-nlp-sh02/hadoop-aipnlp/FMG/liuxinyu67/mem-co-t-MemCoT/experiments/memcot_c5_d2_qwen/train/checkpoint-1305 \
+TOKENIZER_PATH=/mnt/dolphinfs/ssd_pool/docker/user/hadoop-nlp-sh02/hadoop-aipnlp/FMG/liuxinyu67/models/Qwen2.5-0.5B-Instruct \
+COMPRESS_CONFIG=./configs/LightThinker/qwen/adaptive_mtp_v1.json \
+DRAFT_LEN=2 DATASETS="gsm8k" GPU=0 \
+bash scripts/run_runtime_breakdown.sh
+```
+
+
+脚本会：**按你传入的** `DRAFT_LENS` **原样扫描**（不解析 config 里的 `max_offset`，请自行保证不超过训练值，否则超出的位置是未训练的假信号）、按 `MODEL_TYPE`（`qwen`/`llama`）自动选对话 token、跑基线做真实加速比对照、最后聚合出 CSV / 图 / JSON 并打印结果路径。
+
+所有字段同样可用环境变量覆盖，无需改文件：
+
+```bash
+CKPT_PATH=/my/ckpt DRAFT_LENS="1 2" DATASETS="gsm8k mmlu" GPU=0 \
   bash scripts/run_mtp_acceptance.sh
 ```
 
 
-| 环境变量 | 默认值 | 含义 |
-| --- | --- | --- |
-| `DRAFT_LENS` | `1 2 3` | 每步投机 register token 数（`--mtp_draft_len`）。扫到超过训练 `max_offset` 可观察接受率何时崩塌。 |
-| `DATASETS` | `gsm8k` | 空格分隔：`gsm8k mmlu bbh gpqa` |
-| `WITH_BASELINE` | `0` | 设为 `1` 额外跑一次非投机解码作为墙钟对照 |
-| `GPU` | `0` | CUDA 设备编号 |
-| `MODEL_PATH` / `TOKENIZER_PATH` / `COMPRESS_CONFIG` | 见脚本头部 | 必须使用**含 `mtp` 块的 MTP 训练配置**，如 `[configs/LightThinker/qwen/adaptive_mtp_v1.json](configs/LightThinker/qwen/adaptive_mtp_v1.json)`；否则不会走投机分支。 |
+| 字段 / 环境变量         | 默认值                                | 含义                                                                      |
+| ----------------- | ---------------------------------- | ----------------------------------------------------------------------- |
+| `CKPT_PATH`       | *(需填)*                             | MTP 训练的 checkpoint 目录                                                   |
+| `TOKENIZER_PATH`  | *(需填)*                             | tokenizer 目录                                                            |
+| `COMPRESS_CONFIG` | `configs/.../adaptive_mtp_v1.json` | **必须含** `mtp` **块**，否则不走投机分支                                            |
+| `DRAFT_LENS`      | `1 2`                              | 每步投机 register token 数（`--mtp_draft_len`）;按原样使用，请自行保证 <= 训练 `max_offset` |
+| `DATASETS`        | `gsm8k`                            | 空格分隔：`gsm8k mmlu bbh gpqa`                                              |
+| `MODEL_TYPE`      | `qwen`                             | `qwen` / `llama`;自动决定 `BOS_TOKEN` / `EOS_TOKEN`                         |
+| `WITH_BASELINE`   | `1`                                | 额外跑一次非投机解码作为墙钟对照（真实加速比）                                                 |
+| `GPU`             | `0`                                | CUDA 设备编号                                                               |
+| `RESULT_ROOT`     | `mtp_accept_results`               | 结果输出目录                                                                  |
 
 
-> **前提：** 草稿长度 `γ` 通过 `--mtp_draft_len` 配置。接受率仅在不超过 checkpoint 训练时的 `max_offset` 范围内有意义（训练时 register offset 在 `[0, max_offset]` 中采样）。
+> **前提与约束：** 草稿长度 `γ` 由 `--mtp_draft_len` 配置。接受率仅在不超过 checkpoint 训练时的 `max_offset` 范围内有意义（训练时 register offset 在 `[0, max_offset]` 中采样）——**脚本按你传入的** `DRAFT_LENS` **原样使用，请自行保证不超过训练值**。单次 `dl2` 运行的结果文件里**已同时含 pos1 / pos2 / pos3 三个位置**的逐位置接受率（`draft_len = γ + 1 = 3`），无需为每个位置单独跑。
 
-#### 完整示例：`max_offset=2` 训练的 checkpoint
+> `COMPRESS_CONFIG` **里的** `max_offset` **需要与** `DRAFT_LENS` **对齐吗？——不需要。** 只要传了 `--mtp_draft_len`（本脚本每次都传），推理时的草稿长度完全由它决定，config 里的 `max_offset` 会被覆盖、不参与计算（`inference.py:1650`）；config 的 `mtp` 块只需**存在**即可触发投机分支。真正的硬约束是 `DRAFT_LENS ≤ 训练时的 max_offset`（该值烘进了权重）。仍建议把 config 的 `max_offset` 保持成训练值，作为该 ckpt 的身份标签，并给 `inference_batched.py` 的兜底路径用。
 
-假设主实验用如下 `mtp` 块训练（register offset 在 `[0, 2]` 中采样）：
 
-```json
-"mtp": { "mtp_loss_weight": 0.3, "lm_loss_weight": 0.7, "max_offset": 2 }
-```
-
-则草稿长度**最多扫到 2**（`DRAFT_LENS` 设到 3+ 会用到未训练的 register 位置，那些位置的接受率是假信号）：
-
-```bash
-cd /path/to/MemoSight
-
-MODEL_PATH=/path/to/你的训练输出/checkpoint-xxxx \
-TOKENIZER_PATH=/path/to/Qwen2.5-0.5B-Instruct \
-COMPRESS_CONFIG=./configs/LightThinker/qwen/adaptive_mtp_v1.json \
-MODEL_TYPE=qwen \
-DRAFT_LENS="1 2" \
-DATASETS="gsm8k" \
-GPU=0 \
-WITH_BASELINE=1 \
-RESULT_ROOT=mtp_accept_results/max_offset2 \
-bash scripts/run_mtp_acceptance.sh
-```
-
-单次 `dl2` 运行的结果文件里**已同时含 pos1 / pos2 / pos3 三个位置**的逐位置接受率（`draft_len = γ + 1 = 3`），无需为每个位置单独跑。`dl1` 用于对比不同草稿长度下的 τ 与 token/前向；`WITH_BASELINE=1` 给出真实吞吐加速比。产物在 `mtp_accept_results/max_offset2/{summary.csv,acceptance.png,summary.json}`。
-
-> **`COMPRESS_CONFIG` 里的 `max_offset` 需要与 `DRAFT_LENS` 对齐吗？——不需要。** 只要传了 `--mtp_draft_len`（本脚本每次都传），推理时的草稿长度完全由它决定，config 里的 `max_offset` 会被覆盖、不参与计算（`inference.py:1650`）；config 的 `mtp` 块只需**存在**即可触发投机分支。真正的硬约束是 `DRAFT_LENS ≤ 训练时的 max_offset`（该值烘进了权重）。仍建议把 config 的 `max_offset` 保持成训练值，作为该 ckpt 的身份标签，并给 `inference_batched.py` 的兜底路径用。
 
 ### 手动分析
 
@@ -258,17 +293,20 @@ python scripts/analyze_mtp_acceptance.py \
   --json mtp_accept_results/summary.json
 ```
 
+
+
 ### 报告指标
 
 
-| 指标 | 定义 | 解读 |
-| --- | --- | --- |
-| **平均接受长度 τ** | 已提交 token 数 / 解码步数 | 每步等价产出的 token 数（加速比上界） |
-| **整体接受率 α** | 接受的投机 token / 提议的投机 token | MTP 草稿被采纳的比例，`∈ [0, 1]` |
-| **逐位置接受率 αₖ** | 第 k 个 register 位置的接受率（无条件 + 条件于"被触及"两种口径） | 预测质量随距离的衰减 |
-| **token / 前向** | 已提交 token / 前向次数 | 计算受限下的加速代理（普通 AR 为 `1.0`） |
-| **token / 秒** | 输出长度 / 推理耗时 | 实测墙钟吞吐 |
-| **接受直方图** | 每步提交 1、2、… 个 token 的频率 | 接受分布的形状 |
+| 指标             | 定义                                        | 解读                        |
+| -------------- | ----------------------------------------- | ------------------------- |
+| **平均接受长度 τ**   | 已提交 token 数 / 解码步数                        | 每步等价产出的 token 数（加速比上界）    |
+| **整体接受率 α**    | 接受的投机 token / 提议的投机 token                 | MTP 草稿被采纳的比例，`∈ [0, 1]`   |
+| **逐位置接受率 αₖ**  | 第 k 个 register 位置的接受率（无条件 + 条件于"被触及"两种口径） | 预测质量随距离的衰减                |
+| **token / 前向** | 已提交 token / 前向次数                          | 计算受限下的加速代理（普通 AR 为 `1.0`） |
+| **token / 秒**  | 输出长度 / 推理耗时                               | 实测墙钟吞吐                    |
+| **接受直方图**      | 每步提交 1、2、… 个 token 的频率                    | 接受分布的形状                   |
+
 
 准确率一并报告，避免脱离精度孤立地看加速。
 
@@ -278,6 +316,37 @@ python scripts/analyze_mtp_acceptance.py \
 - `summary.csv` —— 每组一行：`draft_len, accuracy, mean_accept_len, overall_accept_rate, tokens_per_forward, tokens_per_sec …`
 - `summary.json` —— 完整派生指标（含逐位置 αₖ 与接受直方图）。
 - `acceptance.png` —— 两幅子图：逐位置接受率曲线，以及平均接受长度 / token-per-forward 随草稿长度的变化。
+
+
+
+## 运行时分解（Runtime Breakdown）
+
+回答"加速来自哪里":把每个解码步的墙钟时间拆成 **prediction（草拟）/ verification（验证）/ compression（压缩）/ other** 四类。用 `--profile_breakdown true` 运行推理即可采集(GPU 同步计时,归因才准确)。
+
+```bash
+CKPT_PATH=/path/to/你的ckpt \
+TOKENIZER_PATH=/path/to/Qwen2.5-0.5B-Instruct \
+COMPRESS_CONFIG=./configs/LightThinker/qwen/adaptive_mtp_v1.json \
+DRAFT_LEN=2 DATASETS="gsm8k" GPU=0 \
+bash scripts/run_runtime_breakdown.sh
+```
+
+各阶段对应代码：**prediction** = 主前向 + 草稿采样；**verification** = verify 前向 + 采样 + KV 回滚；**compression** = 压缩分支的 cache/input-ids 裁剪；**other** = `t_total` 减去前三者(mask 构造、register 记账、Python 开销)。秒数跨样本**池化**后再算占比(长样本权重更大,正是"时间去哪了"图想要的)。
+
+> **注意：** profiling 在每个阶段外插了 `torch.cuda.synchronize()`,所以**这一次 run 的 tokens/s 不是有效吞吐**——请与端到端速度 / 接受率的 run 分开跑。压缩前向是**融合**进主前向的,故压缩桶只计其独有开销(cache 裁剪),压缩的前向成本落在 prediction 内;这是记账约定,写报告时点明即可。
+
+已有推理输出也可直接聚合：
+
+```bash
+python scripts/analyze_runtime_breakdown.py \
+  --group gsm8k=runtime_breakdown_results/dl2/gsm8k/**/*.jsonl \
+  --group bbh=runtime_breakdown_results/dl2/bbh/**/*.jsonl \
+  --csv breakdown.csv --plot breakdown.png --json breakdown.json
+```
+
+产物：`breakdown.csv`(每数据集一行:各阶段秒数与占比)、`breakdown.png`(堆叠柱状图)、`breakdown.json`(完整指标)。
+
+**要不要分数据集跑？** 分解占比主要由**机制**决定(前向次数、验证/压缩触发频率),不像准确率那样强内容相关,所以理论上单个代表性数据集(如 GSM8k)就足以支撑"时间去哪了"的论点。但**这次 profiling 与接受率跑的是同一条推理路径**——如果你本来就要跨 benchmark 报接受率,分解数据几乎**零边际成本**顺带就有了。建议:正文用 GSM8k 作主图,附录用本脚本的按数据集分组证明占比在各 benchmark 间稳定(压缩步占比会随 CoT 长度/结构略有差异,值得一并展示)。**不必**为分解单独增开数据集。
 
 ## 项目结构
 
@@ -306,6 +375,8 @@ MemoSight/
   url     = {https://arxiv.org/abs/2604.14889}
 }
 ```
+
+
 
 ## 致谢
 

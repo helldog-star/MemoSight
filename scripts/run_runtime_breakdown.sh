@@ -1,0 +1,88 @@
+#!/usr/bin/env bash
+# One-shot MTP decode-time runtime breakdown (prediction / verification /
+# compression / other).
+#
+# Fill in the CONFIG block, then run:
+#     bash scripts/run_runtime_breakdown.sh
+# Runs inference with --profile_breakdown at a single draft length across the
+# datasets, then aggregates a per-dataset breakdown table + stacked-bar plot.
+#
+# NOTE: profiling inserts torch.cuda.synchronize() around each phase, so this
+# run's tokens/s is NOT a valid throughput number. Keep it separate from the
+# end-to-end speed / acceptance-rate runs.
+set -euo pipefail
+cd "$(dirname "$0")/.."   # repo root
+
+# ============================================================================
+# CONFIG — edit these, then run.  (all overridable via env vars)
+# ============================================================================
+CKPT_PATH="${CKPT_PATH:-/path/to/your/train_output/checkpoint-xxxx}"   # MTP-trained checkpoint dir
+TOKENIZER_PATH="${TOKENIZER_PATH:-/path/to/Qwen2.5-0.5B-Instruct}"     # tokenizer dir
+COMPRESS_CONFIG="${COMPRESS_CONFIG:-./configs/LightThinker/qwen/adaptive_mtp_v1.json}"  # config WITH an `mtp` block
+DRAFT_LEN="${DRAFT_LEN:-2}"       # single deployment draft length; keep <= training max_offset
+DATASETS="${DATASETS:-gsm8k}"     # space-separated: gsm8k mmlu bbh gpqa
+# ============================================================================
+
+# ---- knobs with sane defaults ----------------------------------------------
+MODEL_TYPE="${MODEL_TYPE:-qwen}"                       # qwen | llama
+GPU="${GPU:-0}"
+MAX_NEW_TOKENS="${MAX_NEW_TOKENS:-10240}"
+UPDATE_ATTN="${UPDATE_ATTN:-local}"
+INDEX="${INDEX:-1}"
+SPLIT_SIZE="${SPLIT_SIZE:-1}"
+RESULT_ROOT="${RESULT_ROOT:-runtime_breakdown_results}"
+
+if [ "$MODEL_TYPE" = "llama" ]; then
+    BOS_TOKEN="${BOS_TOKEN:-<|start_header_id|>}"
+    EOS_TOKEN="${EOS_TOKEN:-<|eot_id|>}"
+else
+    BOS_TOKEN="${BOS_TOKEN:-<|im_start|>}"
+    EOS_TOKEN="${EOS_TOKEN:-<|im_end|>}"
+fi
+
+ROOT_DIR="./LightThinker"
+[ -e "$CKPT_PATH" ]        || { echo "!! CKPT_PATH not found: $CKPT_PATH   (edit the CONFIG block)"; exit 1; }
+[ -f "$COMPRESS_CONFIG" ]  || { echo "!! COMPRESS_CONFIG not found: $COMPRESS_CONFIG"; exit 1; }
+
+OUT_TAG="${RESULT_ROOT}/dl${DRAFT_LEN}"
+echo ">>> runtime breakdown: draft_len=${DRAFT_LEN}  datasets='${DATASETS}'  gpu=${GPU}  ->  ${OUT_TAG}/"
+echo ">>> (profiling adds cuda.synchronize barriers — do NOT read tokens/s from this run)"
+
+# one inference pass over all datasets, with profiling on
+CUDA_VISIBLE_DEVICES="$GPU" python "${ROOT_DIR}/inference.py" \
+    --model_tag "runtime_bd" \
+    --model_short_tag "rbd_dl${DRAFT_LEN}" \
+    --ckpt "0" \
+    --model_path "$CKPT_PATH" \
+    --tokenizer_path "$TOKENIZER_PATH" \
+    --compress_config "$COMPRESS_CONFIG" \
+    --model_type "$MODEL_TYPE" \
+    --bos_token "$BOS_TOKEN" \
+    --eos_token "$EOS_TOKEN" \
+    --max_new_tokens "$MAX_NEW_TOKENS" \
+    --update_attention_method "$UPDATE_ATTN" \
+    --output_tag "$OUT_TAG" \
+    --datasets $DATASETS \
+    --split_size "$SPLIT_SIZE" \
+    --index "$INDEX" \
+    --spec_decode true \
+    --mtp_draft_len "$DRAFT_LEN" \
+    --profile_breakdown true
+
+# aggregate, one analyzer group per dataset
+echo ">>> aggregating runtime breakdown per dataset"
+GROUP_ARGS=()
+for ds in $DATASETS; do
+    GROUP_ARGS+=(--group "${ds}=${OUT_TAG}/${ds}/**/*.jsonl")
+done
+python scripts/analyze_runtime_breakdown.py \
+    "${GROUP_ARGS[@]}" \
+    --csv "${RESULT_ROOT}/breakdown.csv" \
+    --plot "${RESULT_ROOT}/breakdown.png" \
+    --json "${RESULT_ROOT}/breakdown.json"
+
+echo ""
+echo ">>> done. results:"
+echo "      ${RESULT_ROOT}/breakdown.csv    (per-phase seconds & % per dataset)"
+echo "      ${RESULT_ROOT}/breakdown.png    (stacked-bar breakdown)"
+echo "      ${RESULT_ROOT}/breakdown.json   (full metrics)"

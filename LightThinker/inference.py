@@ -33,6 +33,15 @@ INDICATOR_LIST:List[str] = [
 ]
 
 
+def _sync_now():
+    """GPU-synchronized wall-clock read for runtime-breakdown profiling.
+    CUDA kernels launch async, so timing without a sync attributes garbage;
+    only call this on the profiling path (it adds a sync barrier)."""
+    if torch.cuda.is_available():
+        torch.cuda.synchronize()
+    return time.perf_counter()
+
+
 class MTPStats:
     """Per-sample collector for MTP self-speculative-decoding acceptance stats.
 
@@ -47,8 +56,9 @@ class MTPStats:
         (used for mean-accept-length / tokens-per-forward speedup proxies).
     """
 
-    def __init__(self):
+    def __init__(self, profile=False):
         self.decode_steps = 0        # number of outer-loop iterations
+        self.comp_steps = 0          # iterations that ran the compression branch
         self.committed_tokens = 0    # sum of accepted_count (tokens actually emitted)
         self.forward_passes = 0      # main forward + verify forward
         self.verify_steps = 0        # steps where a verify forward actually ran
@@ -60,9 +70,22 @@ class MTPStats:
         self.pos_accepted = {}       # position matched
         # histogram of committed accepted_count per step
         self.accept_hist = {}
+        # ---- runtime breakdown (only populated when profile=True) ----------
+        # wall-clock seconds accumulated per phase, GPU-synchronized so the
+        # attribution is real. `t_other` is derived as t_total - the three.
+        # NOTE: profiling inserts torch.cuda.synchronize() around each phase,
+        # so a profiled run's tokens/s is NOT a valid throughput number — run
+        # profiling separately from the end-to-end speed measurement.
+        self.profile = profile
+        self.t_predict = 0.0         # main forward + draft-token sampling
+        self.t_verify = 0.0          # verify forward + verify sampling + trims
+        self.t_compress = 0.0        # compression-branch KV/cache reduction
+        self.t_total = 0.0           # whole decode-step body (for `other`)
 
-    def record_step(self, forward_passes, committed):
+    def record_step(self, forward_passes, committed, is_comp=False):
         self.decode_steps += 1
+        if is_comp:
+            self.comp_steps += 1
         self.forward_passes += forward_passes
         self.committed_tokens += committed
         self.accept_hist[committed] = self.accept_hist.get(committed, 0) + 1
@@ -103,8 +126,9 @@ class MTPStats:
             k: (self.pos_accepted.get(k, 0) / self.pos_reached[k])
             for k in gammas if self.pos_reached[k] > 0
         }
-        return dict(
+        out = dict(
             decode_steps=self.decode_steps,
+            comp_steps=self.comp_steps,
             committed_tokens=self.committed_tokens,
             forward_passes=self.forward_passes,
             verify_steps=self.verify_steps,
@@ -122,6 +146,15 @@ class MTPStats:
             pos_accepted=dict(self.pos_accepted),
             accept_hist=self.accept_hist,
         )
+        if self.profile:
+            # raw per-phase seconds; the analyzer pools these across samples
+            out["runtime_breakdown"] = dict(
+                t_predict=self.t_predict,
+                t_verify=self.t_verify,
+                t_compress=self.t_compress,
+                t_total=self.t_total,
+            )
+        return out
 
 
 class DebugUtils:
@@ -1653,6 +1686,10 @@ def _sentence_level_mtp_register_generate(
         register_token_count = 2
     register_token_count = max(0, register_token_count)
 
+    # runtime-breakdown profiling toggle: gated on the stats object so the
+    # sync barriers are only paid on a dedicated profiling run.
+    _PROF = mtp_stats is not None and getattr(mtp_stats, "profile", False)
+
     # 在首次进入 split 分支前也需要一个可用 position_ids 基准
     position_ids = token_utils.get_position_ids()[:, -1:]
 
@@ -1661,6 +1698,7 @@ def _sentence_level_mtp_register_generate(
 
 
     while predicted_token_id != eos_token_id and new_token_counters < max_new_tokens:
+            _t_step0 = _sync_now() if _PROF else 0.0
             IS_COMP_MODE:bool = False
             step_forward_passes = 0  # main forward + (optional) verify forward
             token_utils.show_output_input_ids.append(predicted_token_id)
@@ -1798,6 +1836,7 @@ def _sentence_level_mtp_register_generate(
             assert input_ids.shape[1] == position_ids.shape[1], \
                 f"shape mismatch: input_ids={input_ids.shape}, position_ids={position_ids.shape}"
 
+            _t_fwd0 = _sync_now() if _PROF else 0.0
             model_output = model(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
@@ -1807,9 +1846,12 @@ def _sentence_level_mtp_register_generate(
                 position_ids=position_ids,
             )
             step_forward_passes += 1
+            if _PROF:
+                mtp_stats.t_predict += _sync_now() - _t_fwd0
 
             if IS_COMP_MODE:
                 # compression 分支先删除被压缩的原文，再删除临时 register
+                _t_cmp0 = _sync_now() if _PROF else 0.0
                 start = local_start
                 end = _local_mask_end
                 kv_utils.reduce_cache(start=start, end=end)
@@ -1821,6 +1863,8 @@ def _sentence_level_mtp_register_generate(
                     token_utils.reduce_input_ids(start=reg_start, end=reg_end)
                 global_start = len(token_utils._whole_input_ids)
                 local_start = len(token_utils._current_input_ids)
+                if _PROF:
+                    mtp_stats.t_compress += _sync_now() - _t_cmp0
             else:
                 # 非压缩分支只删除临时 register
                 if register_token_count > 0:
@@ -1830,6 +1874,7 @@ def _sentence_level_mtp_register_generate(
                     token_utils.reduce_input_ids(start=reg_start, end=reg_end)
 
             # 基于 [anchor + register...] 的 logits 产出 draft tokens（压缩/非压缩共用）
+            _t_smp0 = _sync_now() if _PROF else 0.0
             draft_len = register_token_count + 1
             draft_tokens: List[int] = []
             for offset in range(draft_len):
@@ -1845,6 +1890,8 @@ def _sentence_level_mtp_register_generate(
                         extra_generated_ids=draft_tokens,
                     )
                 )
+            if _PROF:
+                mtp_stats.t_predict += _sync_now() - _t_smp0
 
             # 若首个 draft 已是控制 token，直接进入下一轮分支处理
             if draft_tokens[0] == comp_config.split_token_id or draft_tokens[0] == eos_token_id:
@@ -1866,6 +1913,7 @@ def _sentence_level_mtp_register_generate(
                     predicted_token_id = draft_tokens[0]
                     accepted_count = 1
                 else:
+                    _t_vfy0 = _sync_now() if _PROF else 0.0
                     if update_attention_method == 'global':
                         verify_attention_mask = attn_utils.update_attention_global(
                             new_length=verify_new_length,
@@ -1969,11 +2017,17 @@ def _sentence_level_mtp_register_generate(
                         # 下一轮从“最后一个已接受 token 的下一 token 预测”继续
                         predicted_token_id = verify_preds[accepted_len - 1]
 
+                    if _PROF:
+                        mtp_stats.t_verify += _sync_now() - _t_vfy0
+
             if mtp_stats is not None:
                 mtp_stats.record_step(
                     forward_passes=step_forward_passes,
                     committed=accepted_count,
+                    is_comp=IS_COMP_MODE,
                 )
+            if _PROF:
+                mtp_stats.t_total += _sync_now() - _t_step0
 
             new_token_counters += accepted_count
 
@@ -2127,6 +2181,9 @@ def get_parser():
     # number of speculative register (draft) tokens per step; None -> falls back
     # to the previous hardcoded value of 2 inside the mtp generate loop.
     parser.add_argument('--mtp_draft_len', type=int, default=None)
+    # collect a GPU-synced prediction/verification/compression runtime breakdown.
+    # adds sync barriers -> use a dedicated run, not the throughput measurement.
+    parser.add_argument('--profile_breakdown', type=str2bool, default=False)
     parser.add_argument(
         '--datasets',
         type=str,
@@ -2212,6 +2269,7 @@ def eval_dataset(
     use_EPL:bool=False,
     spec_decode:bool=False,
     mtp_draft_len:int=None,
+    profile_breakdown:bool=False,
 ):
 
     if split_size != None and index != None:
@@ -2297,7 +2355,7 @@ def eval_dataset(
             system_prompt:str = reader.get_system_prompt()
             system_prompt_list:List[str] = reader.get_system_prompt_list()
 
-            sample_stats = MTPStats() if spec_decode else None
+            sample_stats = MTPStats(profile=profile_breakdown) if spec_decode else None
             start_time = time.time()
             prompt, output = generate(
                 question=question,
@@ -2429,6 +2487,7 @@ def main():
             use_EPL=args.use_EPL,
             spec_decode=args.spec_decode,
             mtp_draft_len=args.mtp_draft_len,
+            profile_breakdown=args.profile_breakdown,
         )
 
 if __name__ == '__main__':

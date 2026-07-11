@@ -1,39 +1,56 @@
 #!/usr/bin/env bash
-# Sweep the MTP draft length and measure self-speculative-decoding acceptance
-# rate across datasets, then aggregate with scripts/analyze_mtp_acceptance.py.
+# One-shot MTP self-speculative-decoding acceptance-rate analysis.
 #
-# Prereq: an MTP-trained checkpoint (config must carry an `mtp` block, e.g.
-# configs/LightThinker/qwen/adaptive_mtp_v1.json) — the spec_decode path is
-# only taken when comp_config.mtp_cfg is set.
+# Fill in the 5 fields in the CONFIG block below, then just run:
+#     bash scripts/run_mtp_acceptance.sh
+# It sweeps the draft length over the datasets, then aggregates into a
+# CSV / plot / JSON under $RESULT_ROOT.
 #
-# Usage:
-#   bash scripts/run_mtp_acceptance.sh
-#   DRAFT_LENS="1 2 3" DATASETS="gsm8k" GPU=0 bash scripts/run_mtp_acceptance.sh
+# Every field is also overridable from the command line, e.g.:
+#     CKPT_PATH=/my/ckpt DRAFT_LENS="1 2" bash scripts/run_mtp_acceptance.sh
 set -euo pipefail
-
 cd "$(dirname "$0")/.."   # repo root
 
-# ---- edit these to match your model ----------------------------------------
-MODEL_PATH="${MODEL_PATH:-/mnt/jinbo/RLRM/model/deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B}"
-TOKENIZER_PATH="${TOKENIZER_PATH:-/mnt/jinbo/RLRM/model/Qwen/Qwen2.5-0.5B-Instruct}"
-COMPRESS_CONFIG="${COMPRESS_CONFIG:-./configs/LightThinker/qwen/adaptive_mtp_v1.json}"
-MODEL_TYPE="${MODEL_TYPE:-qwen}"
-BOS_TOKEN="${BOS_TOKEN:-<|im_start|>}"
-EOS_TOKEN="${EOS_TOKEN:-<|im_end|>}"
-CKPT="${CKPT:-0}"
-MODEL_TAG="${MODEL_TAG:-mtp_model}"
-# ----------------------------------------------------------------------------
+# ============================================================================
+# CONFIG — edit these 5 lines, then run.  (all overridable via env vars)
+# ============================================================================
+CKPT_PATH="${CKPT_PATH:-/path/to/your/train_output/checkpoint-xxxx}"   # MTP-trained checkpoint dir
+TOKENIZER_PATH="${TOKENIZER_PATH:-/path/to/Qwen2.5-0.5B-Instruct}"     # tokenizer dir
+COMPRESS_CONFIG="${COMPRESS_CONFIG:-./configs/LightThinker/qwen/adaptive_mtp_v1.json}"  # config WITH an `mtp` block
+DRAFT_LENS="${DRAFT_LENS:-1 2}"   # speculative register tokens/step to sweep; keep <= training max_offset (used as-is)
+DATASETS="${DATASETS:-gsm8k}"     # space-separated: gsm8k mmlu bbh gpqa
+# ============================================================================
 
-DRAFT_LENS="${DRAFT_LENS:-1 2 3}"          # speculative register tokens per step
-DATASETS="${DATASETS:-gsm8k}"              # space-separated: gsm8k mmlu bbh gpqa
-GPU="${GPU:-0}"
+# ---- knobs with sane defaults (usually leave as-is) ------------------------
+MODEL_TYPE="${MODEL_TYPE:-qwen}"                       # qwen | llama (sets chat tokens below)
+GPU="${GPU:-0}"                                        # CUDA device id
+WITH_BASELINE="${WITH_BASELINE:-1}"                    # 1 = also run a non-speculative pass for a real speedup ref
 MAX_NEW_TOKENS="${MAX_NEW_TOKENS:-10240}"
 UPDATE_ATTN="${UPDATE_ATTN:-local}"
 INDEX="${INDEX:-1}"
 SPLIT_SIZE="${SPLIT_SIZE:-1}"
 RESULT_ROOT="${RESULT_ROOT:-mtp_accept_results}"
 
+# chat tokens picked from MODEL_TYPE unless explicitly overridden
+if [ "$MODEL_TYPE" = "llama" ]; then
+    BOS_TOKEN="${BOS_TOKEN:-<|start_header_id|>}"
+    EOS_TOKEN="${EOS_TOKEN:-<|eot_id|>}"
+else
+    BOS_TOKEN="${BOS_TOKEN:-<|im_start|>}"
+    EOS_TOKEN="${EOS_TOKEN:-<|im_end|>}"
+fi
+
 ROOT_DIR="./LightThinker"
+
+# ---- sanity checks ---------------------------------------------------------
+[ -e "$CKPT_PATH" ]        || { echo "!! CKPT_PATH not found: $CKPT_PATH   (edit the CONFIG block)"; exit 1; }
+[ -f "$COMPRESS_CONFIG" ]  || { echo "!! COMPRESS_CONFIG not found: $COMPRESS_CONFIG"; exit 1; }
+
+# NOTE: DRAFT_LENS is used exactly as given. Keep each value <= the max_offset
+# the checkpoint was trained with, or those extra positions were never trained
+# and their acceptance is a fake signal.
+echo ">>> DRAFT_LENS='${DRAFT_LENS}'  datasets='${DATASETS}'  gpu=${GPU}  ->  ${RESULT_ROOT}/"
+
 mkdir -p "$RESULT_ROOT"
 GROUP_ARGS=()
 
@@ -46,10 +63,10 @@ run_one () {          # $1 = draft_len ("baseline" -> spec_decode off)
     fi
     echo ">>> running ${out_tag} (spec_decode=${spec})"
     CUDA_VISIBLE_DEVICES="$GPU" python "${ROOT_DIR}/inference.py" \
-        --model_tag "$MODEL_TAG" \
+        --model_tag "mtp_accept" \
         --model_short_tag "mtp_dl_${dl}" \
-        --ckpt "$CKPT" \
-        --model_path "$MODEL_PATH" \
+        --ckpt "0" \
+        --model_path "$CKPT_PATH" \
         --tokenizer_path "$TOKENIZER_PATH" \
         --compress_config "$COMPRESS_CONFIG" \
         --model_type "$MODEL_TYPE" \
@@ -63,15 +80,15 @@ run_one () {          # $1 = draft_len ("baseline" -> spec_decode off)
         --index "$INDEX" \
         --spec_decode "$spec" \
         "${extra_args[@]}"
-    # collect this run's jsonls into an analyzer group
-    GROUP_ARGS+=(--group "${dl}=${out_tag}/**/*.jsonl")
+    # only speculative runs carry mtp_stats worth grouping
+    if [ "$dl" != "baseline" ]; then
+        GROUP_ARGS+=(--group "dl${dl}=${out_tag}/**/*.jsonl")
+    fi
 }
 
-# Optional wall-clock baseline (no speculation) for real speedup numbers.
-if [ "${WITH_BASELINE:-0}" = "1" ]; then
+if [ "$WITH_BASELINE" = "1" ]; then
     run_one baseline
 fi
-
 for dl in $DRAFT_LENS; do
     run_one "$dl"
 done
@@ -83,4 +100,8 @@ python scripts/analyze_mtp_acceptance.py \
     --plot "${RESULT_ROOT}/acceptance.png" \
     --json "${RESULT_ROOT}/summary.json"
 
-echo ">>> done. see ${RESULT_ROOT}/summary.csv and ${RESULT_ROOT}/acceptance.png"
+echo ""
+echo ">>> done. results:"
+echo "      ${RESULT_ROOT}/summary.csv     (τ / α / tok-fwd / acc per draft length)"
+echo "      ${RESULT_ROOT}/acceptance.png  (per-position acceptance curve + speedup)"
+echo "      ${RESULT_ROOT}/summary.json    (full metrics incl. per-position α_k)"

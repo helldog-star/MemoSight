@@ -20,6 +20,7 @@ Official PyTorch implementation of **[MemoSight: Unifying Context Compression an
 - [Data Preparation](#data-preparation)
 - [Quick Start](#quick-start)
 - [MTP Acceptance-Rate Analysis](#mtp-acceptance-rate-analysis)
+- [Runtime Breakdown](#runtime-breakdown)
 - [Project Structure](#project-structure)
 - [Citation](#citation)
 - [Acknowledgments](#acknowledgments)
@@ -188,51 +189,45 @@ MemoSight decodes with **self-speculative decoding**: at each step the model dra
 
 ### Running the sweep
 
-Inference collects per-sample acceptance statistics whenever it is run with `--spec_decode true`. The convenience runner [`scripts/run_mtp_acceptance.sh`](scripts/run_mtp_acceptance.sh) sweeps the draft length `γ` over the datasets and then aggregates the results:
+The convenience runner [`scripts/run_mtp_acceptance.sh`](scripts/run_mtp_acceptance.sh) chains *sweep draft length `γ` → run inference per dataset → aggregate* into one command. Open the script, edit the 5 lines in the **CONFIG** block at the top, then run:
 
 ```bash
-DRAFT_LENS="1 2 3" DATASETS="gsm8k" GPU=0 WITH_BASELINE=1 \
-  bash scripts/run_mtp_acceptance.sh
+# top of scripts/run_mtp_acceptance.sh
+CKPT_PATH="/path/to/your/train_output/checkpoint-xxxx"   # MTP-trained checkpoint dir
+TOKENIZER_PATH="/path/to/Qwen2.5-0.5B-Instruct"          # tokenizer dir
+COMPRESS_CONFIG="./configs/LightThinker/qwen/adaptive_mtp_v1.json"  # config WITH an `mtp` block
+DRAFT_LENS="1 2"      # speculative register tokens/step; used as-is, keep <= training max_offset
+DATASETS="gsm8k"      # space-separated: gsm8k mmlu bbh gpqa
 ```
-
-| Env var | Default | Meaning |
-|---------|---------|---------|
-| `DRAFT_LENS` | `1 2 3` | Speculative register tokens per step (`--mtp_draft_len`). Sweeping beyond the trained `max_offset` shows where acceptance collapses. |
-| `DATASETS` | `gsm8k` | Space-separated: `gsm8k mmlu bbh gpqa` |
-| `WITH_BASELINE` | `0` | Set `1` to also run a non-speculative pass for a wall-clock reference |
-| `GPU` | `0` | CUDA device id |
-| `MODEL_PATH` / `TOKENIZER_PATH` / `COMPRESS_CONFIG` | see script header | Must use an **MTP-trained** config with an `mtp` block, e.g. [`configs/LightThinker/qwen/adaptive_mtp_v1.json`](configs/LightThinker/qwen/adaptive_mtp_v1.json); the speculative path is skipped otherwise. |
-
-> **Requirement:** the draft length `γ` is configurable via `--mtp_draft_len`. Acceptance is only meaningful up to the `max_offset` the checkpoint was trained with (register offset was sampled in `[0, max_offset]`).
-
-#### Worked example: a checkpoint trained with `max_offset=2`
-
-Suppose the main experiment was trained with this `mtp` block (register offset sampled in `[0, 2]`):
-
-```json
-"mtp": { "mtp_loss_weight": 0.3, "lm_loss_weight": 0.7, "max_offset": 2 }
-```
-
-Then sweep the draft length **up to 2 only** (`DRAFT_LENS` of 3+ hits register positions the model never trained on — acceptance there is a fake signal):
 
 ```bash
-cd /path/to/MemoSight
-
-MODEL_PATH=/path/to/your/train_output/checkpoint-xxxx \
-TOKENIZER_PATH=/path/to/Qwen2.5-0.5B-Instruct \
-COMPRESS_CONFIG=./configs/LightThinker/qwen/adaptive_mtp_v1.json \
-MODEL_TYPE=qwen \
-DRAFT_LENS="1 2" \
-DATASETS="gsm8k" \
-GPU=0 \
-WITH_BASELINE=1 \
-RESULT_ROOT=mtp_accept_results/max_offset2 \
 bash scripts/run_mtp_acceptance.sh
 ```
 
-The single `dl2` run already contains the per-position acceptance for **pos1 / pos2 / pos3** (`draft_len = γ + 1 = 3`) — no need to run each position separately. `dl1` is there to compare τ and tokens/forward across draft lengths, and `WITH_BASELINE=1` gives a real throughput speedup. Outputs land in `mtp_accept_results/max_offset2/{summary.csv,acceptance.png,summary.json}`.
+The script: **sweeps exactly the `DRAFT_LENS` you pass** (it does not parse the config's `max_offset` — keep the values `<=` your training `max_offset` yourself, or the extra positions are untrained and their acceptance is a fake signal), picks the chat tokens from `MODEL_TYPE` (`qwen`/`llama`), runs a baseline for a real speedup reference, then aggregates into a CSV / plot / JSON and prints the result paths.
 
-> **Does `max_offset` in `COMPRESS_CONFIG` need to match `DRAFT_LENS`? — No.** As long as `--mtp_draft_len` is passed (this script always does), it fully determines the inference draft length; the config's `max_offset` is overwritten and unused (`inference.py:1650`). The config's `mtp` block only needs to *exist* to trigger the speculative path. The real hard constraint is `DRAFT_LENS ≤ the max_offset the checkpoint was trained with` (that value is baked into the weights). Still, keep the config's `max_offset` equal to the training value as a label for the checkpoint and for `inference_batched.py`'s fallback path.
+Every field is also overridable from the command line without editing the file:
+
+```bash
+CKPT_PATH=/my/ckpt DRAFT_LENS="1 2" DATASETS="gsm8k mmlu" GPU=0 \
+  bash scripts/run_mtp_acceptance.sh
+```
+
+| Field / env var | Default | Meaning |
+|---------|---------|---------|
+| `CKPT_PATH` | *(fill in)* | MTP-trained checkpoint dir |
+| `TOKENIZER_PATH` | *(fill in)* | tokenizer dir |
+| `COMPRESS_CONFIG` | `configs/.../adaptive_mtp_v1.json` | Must have an `mtp` block or the speculative path is skipped. |
+| `DRAFT_LENS` | `1 2` | Speculative register tokens per step (`--mtp_draft_len`); used as-is — keep `<=` your training `max_offset`. |
+| `DATASETS` | `gsm8k` | Space-separated: `gsm8k mmlu bbh gpqa` |
+| `MODEL_TYPE` | `qwen` | `qwen` / `llama`; picks `BOS_TOKEN` / `EOS_TOKEN`. |
+| `WITH_BASELINE` | `1` | Also run a non-speculative pass for a wall-clock speedup reference. |
+| `GPU` | `0` | CUDA device id |
+| `RESULT_ROOT` | `mtp_accept_results` | Output directory |
+
+> **Requirement & constraint:** the draft length `γ` is set via `--mtp_draft_len`. Acceptance is only meaningful up to the `max_offset` the checkpoint was trained with (register offset was sampled in `[0, max_offset]`) — **the script uses your `DRAFT_LENS` as-is, so keep it within the training value yourself.** A single `dl2` run already contains the per-position acceptance for **pos1 / pos2 / pos3** (`draft_len = γ + 1 = 3`) — no need to run each position separately.
+
+> **Does `max_offset` in `COMPRESS_CONFIG` need to match `DRAFT_LENS`? — No.** As long as `--mtp_draft_len` is passed (this script always does), it fully determines the inference draft length; the config's `max_offset` is overwritten and unused (`inference.py:1650`). The config's `mtp` block only needs to *exist* to trigger the speculative path. The real hard constraint is `DRAFT_LENS ≤ the max_offset the checkpoint was trained with` (baked into the weights). Still, keep the config's `max_offset` equal to the training value as a label for the checkpoint and for `inference_batched.py`'s fallback path.
 
 ### Analyzing manually
 
@@ -271,6 +266,35 @@ Accuracy is reported alongside so speed gains are never read in isolation.
 - `summary.csv` — one row per group: `draft_len, accuracy, mean_accept_len, overall_accept_rate, tokens_per_forward, tokens_per_sec, …`
 - `summary.json` — full derived metrics (including per-position αₖ and the accept histogram).
 - `acceptance.png` — two panels: per-position acceptance curves, and mean accept length / tokens-per-forward vs. draft length.
+
+## Runtime Breakdown
+
+To answer *where the speedup comes from*, split each decode step's wall-clock time into **prediction / verification / compression / other**. Collect it by running inference with `--profile_breakdown true` (timing is GPU-synchronized so the attribution is real).
+
+```bash
+CKPT_PATH=/path/to/your/ckpt \
+TOKENIZER_PATH=/path/to/Qwen2.5-0.5B-Instruct \
+COMPRESS_CONFIG=./configs/LightThinker/qwen/adaptive_mtp_v1.json \
+DRAFT_LEN=2 DATASETS="gsm8k" GPU=0 \
+bash scripts/run_runtime_breakdown.sh
+```
+
+Phase → code: **prediction** = main forward + draft sampling; **verification** = verify forward + sampling + KV trims; **compression** = the compression branch's cache/input-ids reduction; **other** = `t_total` minus the three (mask construction, register bookkeeping, Python overhead). Seconds are *pooled* across samples before dividing (long samples weigh more — exactly what a "where does time go" figure wants).
+
+> **Note:** profiling wraps each phase in `torch.cuda.synchronize()`, so **this run's tokens/s is not a valid throughput number** — keep it separate from the end-to-end speed / acceptance-rate runs. The compression forward is *fused* into the main forward, so the compression bucket only counts its unique overhead (cache reduction); the compression forward cost lands inside prediction. This is an accounting convention — state it in the write-up.
+
+You can also aggregate existing profiled outputs directly:
+
+```bash
+python scripts/analyze_runtime_breakdown.py \
+  --group gsm8k=runtime_breakdown_results/dl2/gsm8k/**/*.jsonl \
+  --group bbh=runtime_breakdown_results/dl2/bbh/**/*.jsonl \
+  --csv breakdown.csv --plot breakdown.png --json breakdown.json
+```
+
+Outputs: `breakdown.csv` (per-dataset per-phase seconds & %), `breakdown.png` (stacked bar), `breakdown.json` (full metrics).
+
+**Run it per dataset?** The breakdown ratios are driven mostly by *mechanism* (forward-pass count, verify/compression trigger frequency), not by content the way accuracy is, so one representative dataset (e.g. GSM8k) is enough to support the "where time goes" claim. But this profiling rides the *same* inference path as the acceptance-rate run — if you're already sweeping benchmarks for acceptance, the breakdown comes at near-zero marginal cost. Recommendation: use GSM8k as the main-text figure, and use this script's per-dataset grouping in the appendix to show the split is stable across benchmarks (the compression-step fraction shifts a bit with CoT length/structure, worth showing). No need to add datasets *just* for the breakdown.
 
 ## Project Structure
 
