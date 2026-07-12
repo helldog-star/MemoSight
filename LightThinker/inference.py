@@ -1932,9 +1932,6 @@ def _sentence_level_mtp_register_generate(
                     if use_EPL:
                         verify_position_ids = verify_position_ids - use_compression_all_count
 
-                    if verify_input_ids[0][0]==11:
-                        print("haha")
-
                     verify_output = model(
                         input_ids=verify_input_ids,
                         attention_mask=verify_attention_mask,
