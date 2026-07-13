@@ -1,0 +1,30 @@
+{
+  "gsm8k": {
+    "n_samples": 2,
+    "n_prof_samples": 2,
+    "decode_steps": 61,
+    "comp_steps": 0,
+    "comp_step_frac": 0.0,
+    "forward_passes": 121,
+    "committed_tokens": 87,
+    "t_total": 2.9206844549962625,
+    "seconds": {
+      "predict": 1.386949709001783,
+      "verify": 1.4315701669966074,
+      "compress": 0.0,
+      "other": 0.10216457899787201
+    },
+    "fraction": {
+      "predict": 0.4748714660459813,
+      "verify": 0.49014886375270533,
+      "compress": 0.0,
+      "other": 0.034979670201313394
+    },
+    "ms_per_step": {
+      "predict": 22.736880475439065,
+      "verify": 23.46836339338701,
+      "compress": 0.0,
+      "other": 1.6748291638995412
+    }
+  }
+}

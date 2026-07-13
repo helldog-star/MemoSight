@@ -10,6 +10,9 @@
 #     CKPT_PATH=/my/ckpt DRAFT_LENS="1 2" bash scripts/run_mtp_acceptance.sh
 set -euo pipefail
 cd "$(dirname "$0")/.."   # repo root
+# inference.py uses absolute imports (`from LightThinker.utils import *`), so the
+# repo root must be on PYTHONPATH — activating a conda env does NOT do this.
+export PYTHONPATH="$(pwd):${PYTHONPATH:-}"
 
 # ============================================================================
 # CONFIG — edit these 5 lines, then run.  (all overridable via env vars)

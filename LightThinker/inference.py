@@ -1182,6 +1182,7 @@ def _prefill_w_prompt_compression(
         past_key_values=past_key_values,
         use_cache=True,
         return_dict=True,
+        output_hidden_states=True,
     )
 
     if not prefill_compress:
@@ -1216,7 +1217,7 @@ def _prefill_w_prompt_compression(
         kv_utils.reduce_cache(start=start, end=end)
         token_utils.reduce_input_ids(start=start, end=end)
 
-    return predicted_token_id
+    return predicted_token_id, model_output.hidden_states[-1]
 
 @torch.no_grad()
 def prefill(

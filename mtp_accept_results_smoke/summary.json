@@ -1,0 +1,55 @@
+{
+  "dl1": {
+    "draft_len": 1,
+    "n_samples": 2,
+    "accuracy": 0.0,
+    "decode_steps": 63,
+    "committed_tokens": 95,
+    "forward_passes": 126,
+    "verify_steps": 63,
+    "control_steps": 0,
+    "mean_accept_len": 1.507936507936508,
+    "overall_accept_rate": 0.5079365079365079,
+    "tokens_per_forward": 0.753968253968254,
+    "theoretical_speedup": 0.753968253968254,
+    "tokens_per_sec": 2.2248363893729435,
+    "per_position_accept_uncond": {
+      "0": 0.5079365079365079
+    },
+    "per_position_accept_cond": {
+      "0": 0.5079365079365079
+    },
+    "accept_hist_frac": {
+      "1": 0.49206349206349204,
+      "2": 0.5079365079365079
+    }
+  },
+  "dl2": {
+    "draft_len": 2,
+    "n_samples": 2,
+    "accuracy": 0.0,
+    "decode_steps": 61,
+    "committed_tokens": 87,
+    "forward_passes": 121,
+    "verify_steps": 60,
+    "control_steps": 1,
+    "mean_accept_len": 1.4262295081967213,
+    "overall_accept_rate": 0.21666666666666667,
+    "tokens_per_forward": 0.71900826446281,
+    "theoretical_speedup": 0.71900826446281,
+    "tokens_per_sec": 2.056493149845231,
+    "per_position_accept_uncond": {
+      "0": 0.38333333333333336,
+      "1": 0.05
+    },
+    "per_position_accept_cond": {
+      "0": 0.38333333333333336,
+      "1": 0.13043478260869565
+    },
+    "accept_hist_frac": {
+      "1": 0.6229508196721312,
+      "2": 0.32786885245901637,
+      "3": 0.04918032786885246
+    }
+  }
+}

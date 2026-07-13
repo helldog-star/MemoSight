@@ -204,6 +204,8 @@ DATASETS="gsm8k"      # space-separated: gsm8k mmlu bbh gpqa
 bash scripts/run_mtp_acceptance.sh
 ```
 
+> **Prerequisites.** Run under an environment that has PyTorch + Transformers (the `LightThinker` deps). The script `cd`s to the repo root and auto-exports `PYTHONPATH=<repo root>`, because `inference.py` imports the package absolutely (`from LightThinker.utils import *`) and the repo ships no `setup.py` — **activating a conda env alone does not put the repo on the import path.** If you invoke `inference.py` directly instead of through this script, export `PYTHONPATH` yourself or you get `ModuleNotFoundError: No module named 'LightThinker'`.
+
 The script: **sweeps exactly the `DRAFT_LENS` you pass** (it does not parse the config's `max_offset` — keep the values `<=` your training `max_offset` yourself, or the extra positions are untrained and their acceptance is a fake signal), picks the chat tokens from `MODEL_TYPE` (`qwen`/`llama`), runs a baseline for a real speedup reference, then aggregates into a CSV / plot / JSON and prints the result paths.
 
 Every field is also overridable from the command line without editing the file:
@@ -222,10 +224,14 @@ CKPT_PATH=/my/ckpt DRAFT_LENS="1 2" DATASETS="gsm8k mmlu" GPU=0 \
 | `DATASETS` | `gsm8k` | Space-separated: `gsm8k mmlu bbh gpqa` |
 | `MODEL_TYPE` | `qwen` | `qwen` / `llama`; picks `BOS_TOKEN` / `EOS_TOKEN`. |
 | `WITH_BASELINE` | `1` | Also run a non-speculative pass for a wall-clock speedup reference. |
+| `MAX_NEW_TOKENS` | `10240` | Generation cap **and** buffer size — see the sizing note below. |
+| `SPLIT_SIZE` / `INDEX` | `1` / `1` | Data sharding: `SPLIT_SIZE=N INDEX=1` runs only the first `len/N` samples — handy for a quick smoke test. |
 | `GPU` | `0` | CUDA device id |
 | `RESULT_ROOT` | `mtp_accept_results` | Output directory |
 
 > **Requirement & constraint:** the draft length `γ` is set via `--mtp_draft_len`. Acceptance is only meaningful up to the `max_offset` the checkpoint was trained with (register offset was sampled in `[0, max_offset]`) — **the script uses your `DRAFT_LENS` as-is, so keep it within the training value yourself.** A single `dl2` run already contains the per-position acceptance for **pos1 / pos2 / pos3** (`draft_len = γ + 1 = 3`) — no need to run each position separately.
+
+> **Don't set `MAX_NEW_TOKENS` too small.** The token/KV buffer is preallocated to `MAX_NEW_TOKENS + max_prompt_len` (1100). With prompt compression on, the prefill *expands* — each prompt sentence appends ~300 register (`<|o_*|>`) tokens, so a single GSM8k prompt prefills to ≈4k tokens. If `MAX_NEW_TOKENS + 1100` is smaller than `prefill + generation`, you get `IndexError: index … is out of bounds` in `set_input_ids`. Keep the default `10240` (buffer ≈11.3k), or size it to `expected_prefill + expected_output` with headroom.
 
 > **Does `max_offset` in `COMPRESS_CONFIG` need to match `DRAFT_LENS`? — No.** As long as `--mtp_draft_len` is passed (this script always does), it fully determines the inference draft length; the config's `max_offset` is overwritten and unused (`inference.py:1650`). The config's `mtp` block only needs to *exist* to trigger the speculative path. The real hard constraint is `DRAFT_LENS ≤ the max_offset the checkpoint was trained with` (baked into the weights). Still, keep the config's `max_offset` equal to the training value as a label for the checkpoint and for `inference_batched.py`'s fallback path.
 

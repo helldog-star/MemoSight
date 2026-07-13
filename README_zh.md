@@ -255,6 +255,8 @@ CKPT_PATH=/my/ckpt DRAFT_LENS="1 2" DATASETS="gsm8k mmlu" GPU=0 \
   bash scripts/run_mtp_acceptance.sh
 ```
 
+> **前置条件：** 请在装有 PyTorch + Transformers（`LightThinker` 依赖）的环境下运行。脚本会 `cd` 到 repo 根并自动 `export PYTHONPATH=<repo 根>`——因为 `inference.py` 用的是绝对导入（`from LightThinker.utils import *`）、且本 repo 没有 `setup.py`，**光激活 conda 环境并不会把 repo 放进导入路径**。若你绕过脚本、直接跑 `inference.py`，请自行 export `PYTHONPATH`，否则会报 `ModuleNotFoundError: No module named 'LightThinker'`。
+
 
 | 字段 / 环境变量         | 默认值                                | 含义                                                                      |
 | ----------------- | ---------------------------------- | ----------------------------------------------------------------------- |
@@ -265,11 +267,15 @@ CKPT_PATH=/my/ckpt DRAFT_LENS="1 2" DATASETS="gsm8k mmlu" GPU=0 \
 | `DATASETS`        | `gsm8k`                            | 空格分隔：`gsm8k mmlu bbh gpqa`                                              |
 | `MODEL_TYPE`      | `qwen`                             | `qwen` / `llama`;自动决定 `BOS_TOKEN` / `EOS_TOKEN`                         |
 | `WITH_BASELINE`   | `1`                                | 额外跑一次非投机解码作为墙钟对照（真实加速比）                                                 |
+| `MAX_NEW_TOKENS`  | `10240`                            | 既是生成上限，**也是缓冲区大小**——见下方尺寸说明                                             |
+| `SPLIT_SIZE` / `INDEX` | `1` / `1`                     | 数据分片：`SPLIT_SIZE=N INDEX=1` 只跑前 `len/N` 条样本——快速冒烟测试很好用                  |
 | `GPU`             | `0`                                | CUDA 设备编号                                                               |
 | `RESULT_ROOT`     | `mtp_accept_results`               | 结果输出目录                                                                  |
 
 
 > **前提与约束：** 草稿长度 `γ` 由 `--mtp_draft_len` 配置。接受率仅在不超过 checkpoint 训练时的 `max_offset` 范围内有意义（训练时 register offset 在 `[0, max_offset]` 中采样）——**脚本按你传入的** `DRAFT_LENS` **原样使用，请自行保证不超过训练值**。单次 `dl2` 运行的结果文件里**已同时含 pos1 / pos2 / pos3 三个位置**的逐位置接受率（`draft_len = γ + 1 = 3`），无需为每个位置单独跑。
+
+> **`MAX_NEW_TOKENS` 别设太小。** token/KV 缓冲区按 `MAX_NEW_TOKENS + max_prompt_len`（1100）预分配。开启 prompt 压缩后 prefill 会**膨胀**——每个 prompt 句子会追加约 300 个 register（`<|o_*|>`）token，所以单条 GSM8k 的 prefill 就能到 ≈4k token。一旦 `MAX_NEW_TOKENS + 1100` 小于 `prefill + 生成长度`，`set_input_ids` 里就会 `IndexError: index … is out of bounds`。保持默认 `10240`（缓冲区 ≈11.3k），或按 `预期 prefill + 预期输出` 留足余量来设。
 
 > `COMPRESS_CONFIG` **里的** `max_offset` **需要与** `DRAFT_LENS` **对齐吗？——不需要。** 只要传了 `--mtp_draft_len`（本脚本每次都传），推理时的草稿长度完全由它决定，config 里的 `max_offset` 会被覆盖、不参与计算（`inference.py:1650`）；config 的 `mtp` 块只需**存在**即可触发投机分支。真正的硬约束是 `DRAFT_LENS ≤ 训练时的 max_offset`（该值烘进了权重）。仍建议把 config 的 `max_offset` 保持成训练值，作为该 ckpt 的身份标签，并给 `inference_batched.py` 的兜底路径用。
 
