@@ -1691,13 +1691,6 @@ def _sentence_level_mtp_register_generate(
     # sync barriers are only paid on a dedicated profiling run.
     _PROF = mtp_stats is not None and getattr(mtp_stats, "profile", False)
 
-    # MTP_DBG=1 打开压缩步位置对齐诊断（主forward位置 vs verify位置 vs 接受情况）
-    _MTP_DBG = os.environ.get("MTP_DBG") == "1"
-    _dbg_step = -1
-
-    def _dbg_dec(ids):
-        return [f"{t}:{tokenizer.decode([t])!r}" for t in ids]
-
     # 在首次进入 split 分支前也需要一个可用 position_ids 基准
     position_ids = token_utils.get_position_ids()[:, -1:]
 
@@ -1844,10 +1837,6 @@ def _sentence_level_mtp_register_generate(
             assert input_ids.shape[1] == position_ids.shape[1], \
                 f"shape mismatch: input_ids={input_ids.shape}, position_ids={position_ids.shape}"
 
-            _dbg_step += 1
-            _dbg_main_pos = position_ids[0].tolist()
-            _dbg_main_ids = input_ids[0].tolist()
-
             _t_fwd0 = _sync_now() if _PROF else 0.0
             model_output = model(
                 input_ids=input_ids,
@@ -1976,19 +1965,6 @@ def _sentence_level_mtp_register_generate(
                             accepted_len += 1
                         else:
                             break
-
-                    if _MTP_DBG:
-                        print(
-                            f"[MTP_DBG step={_dbg_step} COMP={IS_COMP_MODE} "
-                            f"ucc={use_compression_all_count} rc={register_token_count}]\n"
-                            f"  main_pos   ={_dbg_main_pos}\n"
-                            f"  main_ids   ={_dbg_dec(_dbg_main_ids)}\n"
-                            f"  verify_pos ={verify_position_ids[0].tolist()}\n"
-                            f"  drafts     ={_dbg_dec(draft_tokens)}\n"
-                            f"  vpreds     ={_dbg_dec(verify_preds)}\n"
-                            f"  accepted_len={accepted_len}",
-                            flush=True,
-                        )
 
                     # 记录内在接受率（control 裁剪之前的原始匹配长度）
                     if mtp_stats is not None:

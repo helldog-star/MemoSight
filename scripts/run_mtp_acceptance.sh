@@ -83,9 +83,13 @@ run_one () {          # $1 = draft_len ("baseline" -> spec_decode off)
         --index "$INDEX" \
         --spec_decode "$spec" \
         "${extra_args[@]}"
-    # only speculative runs carry mtp_stats worth grouping
+    # only speculative runs carry mtp_stats worth grouping.
+    # group PER DATASET (not pooled) so each dataset gets its own acceptance
+    # numbers — mirrors run_runtime_breakdown.sh. Group name = dl<N>_<dataset>.
     if [ "$dl" != "baseline" ]; then
-        GROUP_ARGS+=(--group "dl${dl}=${out_tag}/**/*.jsonl")
+        for ds in $DATASETS; do
+            GROUP_ARGS+=(--group "dl${dl}_${ds}=${out_tag}/${ds}/**/*.jsonl")
+        done
     fi
 }
 
@@ -105,6 +109,6 @@ python scripts/analyze_mtp_acceptance.py \
 
 echo ""
 echo ">>> done. results:"
-echo "      ${RESULT_ROOT}/summary.csv     (τ / α / tok-fwd / acc per draft length)"
+echo "      ${RESULT_ROOT}/summary.csv     (τ / α / tok-fwd / acc per draft length × dataset)"
 echo "      ${RESULT_ROOT}/acceptance.png  (per-position acceptance curve + speedup)"
 echo "      ${RESULT_ROOT}/summary.json    (full metrics incl. per-position α_k)"
