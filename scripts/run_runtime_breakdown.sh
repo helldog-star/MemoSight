@@ -30,10 +30,25 @@ DATASETS="${DATASETS:-gsm8k}"     # space-separated: gsm8k mmlu bbh gpqa
 MODEL_TYPE="${MODEL_TYPE:-qwen}"                       # qwen | llama
 GPU="${GPU:-0}"
 MAX_NEW_TOKENS="${MAX_NEW_TOKENS:-10240}"
+REPETITION_PENALTY="${REPETITION_PENALTY:-1.1}"   # match pipeline.sh infer (default 1.1)
 UPDATE_ATTN="${UPDATE_ATTN:-local}"
 INDEX="${INDEX:-1}"
 SPLIT_SIZE="${SPLIT_SIZE:-1}"
 RESULT_ROOT="${RESULT_ROOT:-runtime_breakdown_results}"
+
+# inference flags — defaults match pipeline.sh infer for aug-wo-pc-apa-mtp + use_epl true.
+# these MUST be passed explicitly: inference.py argparse defaults are the opposite
+# (use_EPL=False, prefill_compress=True, compress_prompt=True), so omitting them
+# profiles a different decode path than the one trained/deployed.
+USE_EPL="${USE_EPL:-true}"
+COMPRESS_PROMPT="${COMPRESS_PROMPT:-false}"
+PREFILL_COMPRESS="${PREFILL_COMPRESS:-false}"
+ROLLING_ROPE="${ROLLING_ROPE:-false}"
+DIAGONAL="${DIAGONAL:-false}"
+BI_DIRECTIONAL="${BI_DIRECTIONAL:-false}"
+SEE_CURRENT="${SEE_CURRENT:-false}"
+EXCLUDE_CONTINUE="${EXCLUDE_CONTINUE:-false}"
+OUTPUT_COMPRESS_INSTRUCTION="${OUTPUT_COMPRESS_INSTRUCTION:-None}"
 
 if [ "$MODEL_TYPE" = "llama" ]; then
     BOS_TOKEN="${BOS_TOKEN:-<|start_header_id|>}"
@@ -63,7 +78,17 @@ CUDA_VISIBLE_DEVICES="$GPU" python "${ROOT_DIR}/inference.py" \
     --bos_token "$BOS_TOKEN" \
     --eos_token "$EOS_TOKEN" \
     --max_new_tokens "$MAX_NEW_TOKENS" \
+    --repetition_penalty "$REPETITION_PENALTY" \
     --update_attention_method "$UPDATE_ATTN" \
+    --use_EPL "$USE_EPL" \
+    --compress_prompt "$COMPRESS_PROMPT" \
+    --prefill_compress "$PREFILL_COMPRESS" \
+    --rolling_rope "$ROLLING_ROPE" \
+    --diagonal "$DIAGONAL" \
+    --bi_directional "$BI_DIRECTIONAL" \
+    --see_current "$SEE_CURRENT" \
+    --exclude_continue "$EXCLUDE_CONTINUE" \
+    --output_compress_instruction "$OUTPUT_COMPRESS_INSTRUCTION" \
     --output_tag "$OUT_TAG" \
     --datasets $DATASETS \
     --split_size "$SPLIT_SIZE" \
